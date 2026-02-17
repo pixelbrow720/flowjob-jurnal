@@ -1,0 +1,92 @@
+.titlebar {
+  height: 58px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 16px;
+  user-select: none;
+  position: relative;
+  z-index: 100;
+  flex-shrink: 0;
+}
+
+.titlebar::after {
+  content: '';
+  position: absolute;
+  bottom: -1px; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent-primary), transparent);
+  opacity: 0.25;
+}
+
+.titlebar-drag {
+  flex: 1;
+  -webkit-app-region: drag;
+  display: flex;
+  align-items: center;
+}
+
+.titlebar-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.logo-img {
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+  /* logo is black/dark on transparent — invert for dark bg */
+  filter: invert(1) brightness(0.9);
+  flex-shrink: 0;
+}
+
+.logo-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.logo-name {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+  color: var(--text-primary);
+}
+
+.logo-tagline {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-weight: 500;
+  letter-spacing: 0.2px;
+}
+
+.titlebar-controls {
+  display: flex;
+  gap: 1px;
+  -webkit-app-region: no-drag;
+}
+
+.control-btn {
+  width: 44px;
+  height: 32px;
+  background: transparent;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  border-radius: 6px;
+  transition: all var(--transition-fast);
+}
+
+.control-btn:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+.control-btn.close:hover {
+  background: var(--loss-color);
+  color: white;
+}
