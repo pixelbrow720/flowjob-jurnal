@@ -241,3 +241,17 @@ ipcMain.handle('get-setting', async (event, key) => {
 ipcMain.handle('set-setting', async (event, key, value) => {
   return db.setSetting(key, value);
 });
+
+// Daily Journal
+ipcMain.handle('get-daily-journals', async () => {
+  return db.getDailyJournals();
+});
+ipcMain.handle('get-daily-journal', async (event, date) => {
+  return db.getDailyJournal(date);
+});
+ipcMain.handle('save-daily-journal', async (event, journal) => {
+  return db.saveDailyJournal(journal);
+});
+ipcMain.handle('delete-daily-journal', async (event, date) => {
+  return db.deleteDailyJournal(date);
+});

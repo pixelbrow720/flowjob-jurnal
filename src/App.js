@@ -9,6 +9,7 @@ import Analytics from './pages/Analytics';
 import Accounts from './pages/Accounts';
 import CalendarPnL from './pages/CalendarPnL';
 import RiskDashboard from './pages/RiskDashboard';
+import DailyJournal from './pages/DailyJournal';
 import './App.css';
 
 function App() {
@@ -24,6 +25,7 @@ function App() {
               <Route path="/accounts" element={<Accounts />} />
               <Route path="/models" element={<Models />} />
               <Route path="/journal" element={<Journal />} />
+              <Route path="/daily-journal" element={<DailyJournal />} />
               <Route path="/analytics" element={<Analytics />} />
               <Route path="/calendar" element={<CalendarPnL />} />
               <Route path="/risk" element={<RiskDashboard />} />

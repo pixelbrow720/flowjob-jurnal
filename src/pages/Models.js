@@ -489,7 +489,11 @@ function ModelCard({ model, onPreview, onEdit, onDelete }) {
         </div>
       </div>
 
-      {model.narrative && <p className="model-description">{model.narrative}</p>}
+      {model.narrative && (
+        <p className="model-description" style={{ whiteSpace: 'pre-wrap' }}>
+          {model.narrative.replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\'/g, "'")}
+        </p>
+      )}
 
       <div className="model-actions">
         <button className="btn btn-action btn-preview" onClick={onPreview}>
@@ -510,10 +514,18 @@ function ModelCard({ model, onPreview, onEdit, onDelete }) {
 }
 
 function PreviewSection({ title, text }) {
+  // Convert literal \n to actual line breaks and remove escaped quotes
+  const formatted = text
+    .replace(/\\n/g, '\n')
+    .replace(/\\"/g, '"')
+    .replace(/\\'/g, "'");
+  
   return (
     <div className="preview-section">
       <div className="preview-section-title">{title}</div>
-      <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.7 }}>{text}</p>
+      <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
+        {formatted}
+      </p>
     </div>
   );
 }

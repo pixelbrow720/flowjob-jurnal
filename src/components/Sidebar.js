@@ -10,6 +10,7 @@ const navItems = [
   { path: '/accounts',  label: 'Accounts',       icon: `${PUB}/briefcase.png` },
   { path: '/models',    label: 'Trading Models', icon: `${PUB}/target.png` },
   { path: '/journal',   label: 'Trade Journal',  icon: `${PUB}/book.png` },
+  { path: '/daily-journal', label: 'Daily Journal', icon: `${PUB}/pencil.png` },
   { path: '/analytics', label: 'Analytics',      icon: `${PUB}/a.png` },
   { path: '/calendar',  label: 'Calendar P&L',   icon: `${PUB}/calendar.png` },
   { path: '/risk',      label: 'Risk Dashboard', icon: `${PUB}/balance.png` },

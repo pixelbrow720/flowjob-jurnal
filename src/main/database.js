@@ -106,6 +106,26 @@ class DatabaseManager {
       );
     `);
 
+    // ── Daily Journals Table ───────────────────────────────────────────────────
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS daily_journals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date DATE NOT NULL UNIQUE,
+        market_bias TEXT,
+        planned_setups TEXT,
+        risk_plan TEXT,
+        emotional_state_pre TEXT,
+        execution_notes TEXT,
+        what_worked TEXT,
+        what_didnt_work TEXT,
+        lessons_learned TEXT,
+        emotional_state_post TEXT,
+        discipline_score INTEGER DEFAULT 5,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
     // ── Migrate trades table ──────────────────────────────────────────────────
     const tradeColumns = this.db.prepare("PRAGMA table_info(trades)").all().map(c => c.name);
 
@@ -575,6 +595,47 @@ class DatabaseManager {
   setSetting(key, value) {
     this.db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, value);
     return true;
+  }
+
+  // ─── Daily Journal Methods ────────────────────────────────────────────────
+
+  getDailyJournals() {
+    return this.db.prepare('SELECT * FROM daily_journals ORDER BY date DESC').all();
+  }
+
+  getDailyJournal(date) {
+    return this.db.prepare('SELECT * FROM daily_journals WHERE date = ?').get(date);
+  }
+
+  saveDailyJournal(journal) {
+    const existing = this.getDailyJournal(journal.date);
+    if (existing) {
+      return this.db.prepare(`
+        UPDATE daily_journals SET
+          market_bias = ?, planned_setups = ?, risk_plan = ?, emotional_state_pre = ?,
+          execution_notes = ?, what_worked = ?, what_didnt_work = ?, lessons_learned = ?,
+          emotional_state_post = ?, discipline_score = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE date = ?
+      `).run(
+        journal.market_bias, journal.planned_setups, journal.risk_plan, journal.emotional_state_pre,
+        journal.execution_notes, journal.what_worked, journal.what_didnt_work, journal.lessons_learned,
+        journal.emotional_state_post, journal.discipline_score, journal.date
+      );
+    } else {
+      return this.db.prepare(`
+        INSERT INTO daily_journals (date, market_bias, planned_setups, risk_plan, emotional_state_pre,
+          execution_notes, what_worked, what_didnt_work, lessons_learned, emotional_state_post, discipline_score)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        journal.date, journal.market_bias, journal.planned_setups, journal.risk_plan, journal.emotional_state_pre,
+        journal.execution_notes, journal.what_worked, journal.what_didnt_work, journal.lessons_learned,
+        journal.emotional_state_post, journal.discipline_score
+      );
+    }
+  }
+
+  deleteDailyJournal(date) {
+    return this.db.prepare('DELETE FROM daily_journals WHERE date = ?').run(date);
   }
 
   exportToJSON() {
