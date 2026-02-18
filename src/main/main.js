@@ -26,10 +26,18 @@ function createWindow() {
     frame: false
   });
 
-  const startUrl = process.env.ELECTRON_START_URL || `file://${path.join(__dirname, '../../build/index.html')}`;
+  // FIX: Properly detect dev mode.
+  // - npm start (dev)  → load from React dev server at localhost:3000
+  // - npm run dist     → load from built index.html
+  const isDev = !app.isPackaged || process.env.NODE_ENV === 'development';
+  const devUrl = process.env.ELECTRON_START_URL || 'http://localhost:3000';
+  const prodUrl = `file://${path.join(__dirname, '../../build/index.html')}`;
+
+  const startUrl = isDev ? devUrl : prodUrl;
   mainWindow.loadURL(startUrl);
 
-  if (process.env.NODE_ENV === 'development') {
+  // Auto open DevTools in dev
+  if (isDev) {
     mainWindow.webContents.openDevTools();
   }
 
@@ -118,16 +126,16 @@ ipcMain.handle('delete-model', async (event, id) => {
 
 // ─── Trade Operations ─────────────────────────────────────────────────────────
 
-ipcMain.handle('create-trade', async (event, trade) => {
-  return db.createTrade(trade);
-});
-
 ipcMain.handle('get-trades', async (event, filters) => {
-  return db.getTrades(filters || {});
+  return db.getTrades(filters);
 });
 
 ipcMain.handle('get-trade', async (event, id) => {
   return db.getTrade(id);
+});
+
+ipcMain.handle('create-trade', async (event, trade) => {
+  return db.createTrade(trade);
 });
 
 ipcMain.handle('update-trade', async (event, id, trade) => {
@@ -138,28 +146,13 @@ ipcMain.handle('delete-trade', async (event, id) => {
   return db.deleteTrade(id);
 });
 
-// ─── Analytics ────────────────────────────────────────────────────────────────
+// ─── Screenshot Handling ──────────────────────────────────────────────────────
 
-ipcMain.handle('get-analytics', async (event, filters) => {
-  return db.getAnalytics(filters || {});
-});
-
-ipcMain.handle('get-model-performance', async (event, filters) => {
-  return db.getModelPerformance(filters || {});
-});
-
-// ─── File Operations ──────────────────────────────────────────────────────────
-
-ipcMain.handle('select-file', async (event, opts = {}) => {
-  const filters = opts.images
-    ? [{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp'] }]
-    : [{ name: 'All Files', extensions: ['*'] }];
-
+ipcMain.handle('select-file', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openFile'],
-    filters
+    filters: [{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp'] }]
   });
-
   if (!result.canceled && result.filePaths.length > 0) {
     return result.filePaths[0];
   }
@@ -169,34 +162,16 @@ ipcMain.handle('select-file', async (event, opts = {}) => {
 ipcMain.handle('save-screenshot', async (event, sourcePath) => {
   const userDataPath = app.getPath('userData');
   const screenshotsDir = path.join(userDataPath, 'screenshots');
-
   if (!fs.existsSync(screenshotsDir)) {
     fs.mkdirSync(screenshotsDir, { recursive: true });
   }
-
-  const fileName = `screenshot-${Date.now()}${path.extname(sourcePath)}`;
-  const destPath = path.join(screenshotsDir, fileName);
-
+  const ext = path.extname(sourcePath);
+  const destPath = path.join(screenshotsDir, `screenshot-${Date.now()}${ext}`);
   fs.copyFileSync(sourcePath, destPath);
   return destPath;
 });
 
-ipcMain.handle('save-screenshot-from-buffer', async (event, buffer) => {
-  const userDataPath = app.getPath('userData');
-  const screenshotsDir = path.join(userDataPath, 'screenshots');
-
-  if (!fs.existsSync(screenshotsDir)) {
-    fs.mkdirSync(screenshotsDir, { recursive: true });
-  }
-
-  const fileName = `screenshot-${Date.now()}.png`;
-  const destPath = path.join(screenshotsDir, fileName);
-
-  fs.writeFileSync(destPath, buffer);
-  return destPath;
-});
-
-// ─── Export CSV ───────────────────────────────────────────────────────────────
+// ─── CSV Export ───────────────────────────────────────────────────────────────
 
 ipcMain.handle('export-csv', async () => {
   const result = await dialog.showSaveDialog(mainWindow, {
@@ -205,34 +180,22 @@ ipcMain.handle('export-csv', async () => {
   });
 
   if (!result.canceled) {
-    const trades = db.getTrades();
-    const csv = convertToCSV(trades);
-    fs.writeFileSync(result.filePath, csv);
-    return result.filePath;
+    try {
+      const trades = db.getTrades({});
+      const csv = tradesToCSV(trades);
+      fs.writeFileSync(result.filePath, csv, 'utf-8');
+      return { success: true, path: result.filePath };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
   }
-  return null;
+  return { success: false, canceled: true };
 });
 
-ipcMain.handle('export-backup', async () => {
-  const result = await dialog.showSaveDialog(mainWindow, {
-    filters: [{ name: 'JSON', extensions: ['json'] }],
-    defaultPath: `backup-${new Date().toISOString().split('T')[0]}.json`
-  });
-
-  if (!result.canceled) {
-    const data = db.exportToJSON();
-    fs.writeFileSync(result.filePath, JSON.stringify(data, null, 2));
-    return result.filePath;
-  }
-  return null;
-});
-
-function convertToCSV(trades) {
-  const headers = [
-    'Date', 'Account', 'Model', 'Pair', 'Direction', 'Entry', 'SL (pts)', 'TP (pts)',
-    'Size', 'R-Multiple', 'Net P/L', 'Outcome',
-    'Notes', 'Emotional State', 'Rule Violation'
-  ];
+function tradesToCSV(trades) {
+  const headers = ['Date', 'Account', 'Model', 'Pair', 'Direction', 'Entry Price',
+    'SL Points', 'TP Points', 'Position Size', 'R Multiple', 'Net P/L',
+    'Outcome', 'Grade', 'Emotional State', 'Mistake Tag', 'Rule Violation', 'Notes'];
 
   const rows = trades.map(t => [
     t.date,
@@ -241,15 +204,17 @@ function convertToCSV(trades) {
     t.pair,
     t.direction,
     t.entry_price,
-    t.sl_points,
+    t.sl_points || '',
     t.tp_points || '',
     t.position_size,
     t.r_multiple || '',
     t.net_pl,
     t.outcome || '',
-    (t.notes || '').replace(/,/g, ';'),
+    t.trade_grade || '',
     t.emotional_state || '',
-    t.rule_violation ? 'Yes' : 'No'
+    t.mistake_tag || '',
+    t.rule_violation ? 'Yes' : 'No',
+    (t.notes || '').replace(/,/g, ';')
   ]);
 
   return [headers, ...rows].map(row => row.join(',')).join('\n');
@@ -388,4 +353,4 @@ ipcMain.handle('export-pdf-custom', async (event, startDate, endDate) => {
     }
   }
   return { success: false, canceled: true };
-});
+}); 

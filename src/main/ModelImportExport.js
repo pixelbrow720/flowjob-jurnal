@@ -1,5 +1,6 @@
 /**
  * Model Export/Import - CommonJS version for Electron main process
+ * FIX: Map snake_case DB export fields → camelCase expected by createModel()
  */
 
 const fs   = require('fs');
@@ -19,29 +20,34 @@ class ModelExportImport {
     const { id, created_at, updated_at, ...exportData } = model;
 
     // Embed main screenshot as base64
-    if (model.screenshot_path && fs.existsSync(model.screenshot_path)) {
+    const screenshotSrc = exportData.screenshotPath || exportData.screenshot_path;
+    if (screenshotSrc && fs.existsSync(screenshotSrc)) {
       try {
-        exportData.screenshotBase64 = fs.readFileSync(model.screenshot_path).toString('base64');
+        exportData.screenshotBase64 = fs.readFileSync(screenshotSrc).toString('base64');
       } catch (e) {
         console.warn('Could not read model screenshot:', e.message);
       }
     }
 
     // Embed playbook step images as base64
-    if (Array.isArray(exportData.playbookSteps)) {
-      exportData.playbookSteps = exportData.playbookSteps.map(step => {
-        if (!step.imagePath || !fs.existsSync(step.imagePath)) return step;
+    const steps = exportData.playbookSteps || exportData.playbook_steps;
+    if (Array.isArray(steps)) {
+      const processedSteps = steps.map(step => {
+        const imgSrc = step.imagePath || step.image_path;
+        if (!imgSrc || !fs.existsSync(imgSrc)) return step;
         try {
           return {
             ...step,
-            imageBase64: fs.readFileSync(step.imagePath).toString('base64'),
+            imageBase64: fs.readFileSync(imgSrc).toString('base64'),
             imagePath: null,
+            image_path: null,
           };
         } catch (e) {
           console.warn('Could not read step image:', e.message);
           return step;
         }
       });
+      exportData.playbookSteps = processedSteps;
     }
 
     // Add metadata
@@ -74,6 +80,7 @@ class ModelExportImport {
         const imgPath = path.join(screenshotsDir, `screenshot-${Date.now()}.png`);
         fs.writeFileSync(imgPath, Buffer.from(modelData.screenshotBase64, 'base64'));
         modelData.screenshotPath = imgPath;
+        modelData.screenshot_path = imgPath;
       } catch (e) {
         console.warn('Could not restore model screenshot:', e.message);
       }
@@ -81,8 +88,9 @@ class ModelExportImport {
     }
 
     // Restore playbook step images
-    if (Array.isArray(modelData.playbookSteps)) {
-      modelData.playbookSteps = modelData.playbookSteps.map((step, i) => {
+    const rawSteps = modelData.playbookSteps || modelData.playbook_steps;
+    if (Array.isArray(rawSteps)) {
+      const restoredSteps = rawSteps.map((step, i) => {
         if (!step.imageBase64) return step;
         try {
           const imgPath = path.join(screenshotsDir, `step-${Date.now()}-${i}.png`);
@@ -95,6 +103,7 @@ class ModelExportImport {
           return rest;
         }
       });
+      modelData.playbookSteps = restoredSteps;
     }
 
     // Remove any leftover id/timestamps so DB creates a fresh record
@@ -102,25 +111,81 @@ class ModelExportImport {
     delete modelData.created_at;
     delete modelData.updated_at;
 
-    // ── Provide safe defaults for NOT NULL columns ──────────────────────────
-    // These are required by the DB schema and must never be null on insert.
-    const MARKET_TYPE_VALUES = ['forex', 'futures', 'stocks', 'crypto', 'options', 'indices'];
-    if (!modelData.market_type || !MARKET_TYPE_VALUES.includes(modelData.market_type)) {
-      modelData.market_type = modelData.market_type || 'futures';
-    }
+    // ── FIX: Map snake_case (from DB export) → camelCase (expected by createModel) ──
+    // The DB stores and returns snake_case, but createModel() reads camelCase.
+    // We must translate ALL fields before calling createModel().
+
+    const MARKET_TYPE_VALUES = ['Forex', 'Futures', 'Stocks', 'Crypto', 'Options', 'Indices',
+                                 'forex', 'futures', 'stocks', 'crypto', 'options', 'indices'];
+
+    // market_type → marketType
+    const rawMarketType = modelData.marketType || modelData.market_type;
+    modelData.marketType = MARKET_TYPE_VALUES.includes(rawMarketType)
+      ? rawMarketType
+      : 'Futures';
+
+    // name
     if (!modelData.name) {
       modelData.name = `Imported Model ${new Date().toLocaleDateString()}`;
     }
-    if (!modelData.description) {
-      modelData.description = '';
+
+    // entry_logic → entryLogic (parse if string)
+    const rawEntryLogic = modelData.entryLogic || modelData.entry_logic;
+    if (typeof rawEntryLogic === 'string') {
+      try { modelData.entryLogic = JSON.parse(rawEntryLogic); }
+      catch(e) { modelData.entryLogic = { dailyNarrative: rawEntryLogic }; }
+    } else {
+      modelData.entryLogic = rawEntryLogic || {};
     }
-    // Ensure JSON fields are strings, not objects (SQLite stores as TEXT)
-    const jsonFields = ['playbookSteps', 'rules', 'tags', 'timeframes', 'criteria'];
-    jsonFields.forEach(field => {
-      if (modelData[field] !== undefined && typeof modelData[field] !== 'string') {
-        modelData[field] = JSON.stringify(modelData[field]);
-      }
-    });
+
+    // ideal_condition → idealCondition
+    modelData.idealCondition   = modelData.idealCondition   || modelData.ideal_condition   || '';
+    // invalid_condition → invalidCondition
+    modelData.invalidCondition = modelData.invalidCondition || modelData.invalid_condition || '';
+    // risk_model → riskModel
+    modelData.riskModel        = modelData.riskModel        || modelData.risk_model         || 'Fixed R';
+    // screenshot_path → screenshotPath (already set above if restored)
+    modelData.screenshotPath   = modelData.screenshotPath   || modelData.screenshot_path    || null;
+    // narrative
+    modelData.narrative        = modelData.narrative        || '';
+    // session
+    modelData.session          = modelData.session          || 'RTH';
+
+    // confluence_checklist → confluenceChecklist (parse if string)
+    const rawChecklist = modelData.confluenceChecklist || modelData.confluence_checklist;
+    if (typeof rawChecklist === 'string') {
+      try { modelData.confluenceChecklist = JSON.parse(rawChecklist); }
+      catch(e) { modelData.confluenceChecklist = []; }
+    } else {
+      modelData.confluenceChecklist = Array.isArray(rawChecklist) ? rawChecklist : [];
+    }
+
+    // playbook_steps → playbookSteps (already set above, ensure array)
+    const rawPbSteps = modelData.playbookSteps || modelData.playbook_steps;
+    if (typeof rawPbSteps === 'string') {
+      try { modelData.playbookSteps = JSON.parse(rawPbSteps); }
+      catch(e) { modelData.playbookSteps = []; }
+    } else {
+      modelData.playbookSteps = Array.isArray(rawPbSteps) ? rawPbSteps : [];
+    }
+
+    // tags (parse if string)
+    const rawTags = modelData.tags;
+    if (typeof rawTags === 'string') {
+      try { modelData.tags = JSON.parse(rawTags); }
+      catch(e) { modelData.tags = []; }
+    } else {
+      modelData.tags = Array.isArray(rawTags) ? rawTags : [];
+    }
+
+    // timeframes (parse if string)
+    const rawTimeframes = modelData.timeframes;
+    if (typeof rawTimeframes === 'string') {
+      try { modelData.timeframes = JSON.parse(rawTimeframes); }
+      catch(e) { modelData.timeframes = []; }
+    } else {
+      modelData.timeframes = Array.isArray(rawTimeframes) ? rawTimeframes : [];
+    }
 
     return this.db.createModel(modelData);
   }

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import './Journal.css';
 import ConfirmDialog from '../components/ConfirmDialog';
+import { PDFExportButton } from '../components/PDFExportModal';
 import Icon from '../components/Icon';
 
 const { ipcRenderer } = window.require('electron');
@@ -261,6 +262,7 @@ function Journal() {
           <button className="btn btn-secondary" onClick={() => ipcRenderer.invoke('export-csv')}>
             <Icon name="analytics" size={14} style={{ marginRight: 6 }} /> Export CSV
           </button>
+          <PDFExportButton label="Export PDF" />
         </div>
       </div>
 
