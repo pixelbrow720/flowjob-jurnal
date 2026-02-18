@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import './Sidebar.css';
 
 const { ipcRenderer } = window.require('electron');
@@ -18,12 +18,14 @@ const navItems = [
 
 function Sidebar() {
   const [stats, setStats] = useState(null);
+  const location = useLocation(); // FIX: detect navigation changes
 
   useEffect(() => {
     loadStats();
-    const interval = setInterval(loadStats, 30000);
+    // Refresh every 10s (was 30s — too slow to reflect new trades)
+    const interval = setInterval(loadStats, 10000);
     return () => clearInterval(interval);
-  }, []);
+  }, [location]); // FIX: re-run whenever user navigates to a new page
 
   const loadStats = async () => {
     try {
@@ -74,7 +76,9 @@ function Sidebar() {
           {stats && (
             <div className="footer-stat-item wide">
               <span className="footer-stat-label">Profit Factor</span>
-              <span className="footer-stat-val">{stats.profitFactor.toFixed(2)}</span>
+              <span className="footer-stat-val">
+                {stats.profitFactor >= 9999 ? '∞' : stats.profitFactor.toFixed(2)}
+              </span>
             </div>
           )}
         </div>

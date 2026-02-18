@@ -823,19 +823,32 @@ function buildDow(trades) {
 }
 
 function buildRDist(trades) {
-  const B=[
-    {range:'< -2R',min:-Infinity,max:-2,pos:false,count:0},
-    {range:'-2 to -1R',min:-2,max:-1,pos:false,count:0},
-    {range:'-1 to 0R',min:-1,max:0,pos:false,count:0},
-    {range:'0 to 1R',min:0,max:1,pos:true,count:0},
-    {range:'1 to 2R',min:1,max:2,pos:true,count:0},
-    {range:'2 to 3R',min:2,max:3,pos:true,count:0},
-    {range:'> 3R',min:3,max:Infinity,pos:true,count:0},
+  // Loss side: losses in this system are always -1R (stop hit).
+  // Only two negative buckets needed:
+  //   "< -2R"  — catastrophic / scaling losses beyond 2R
+  //   "-1R"    — standard stop-loss bucket (captures all -2R to 0R)
+  //
+  // Win side: wide buckets for runners
+  //   "0–1R"   — small wins / BE
+  //   "1–3R"   — moderate winners
+  //   "4–7R"   — good runners
+  //   "8–10R"  — great runners
+  //   "> 10R"  — exceptional / home-run trades
+  const B = [
+    { range: '< -2R',  min: -Infinity, max: -2,  pos: false, count: 0 },
+    { range: '-1R',    min: -2,        max: 0,   pos: false, count: 0 },
+    { range: '0–1R',   min: 0,         max: 1,   pos: true,  count: 0 },
+    { range: '1–3R',   min: 1,         max: 3,   pos: true,  count: 0 },
+    { range: '4–7R',   min: 3,         max: 7,   pos: true,  count: 0 },
+    { range: '8–10R',  min: 7,         max: 10,  pos: true,  count: 0 },
+    { range: '> 10R',  min: 10,        max: Infinity, pos: true, count: 0 },
   ];
-  trades.forEach(t=>{
-    const r=parseFloat(t.r_multiple);
-    if(isNaN(r))return;
-    for(const b of B){if(r>b.min&&r<=b.max){b.count++;break;}}
+  trades.forEach(t => {
+    const r = parseFloat(t.r_multiple);
+    if (isNaN(r)) return;
+    for (const b of B) {
+      if (r > b.min && r <= b.max) { b.count++; break; }
+    }
   });
   return B;
 }
