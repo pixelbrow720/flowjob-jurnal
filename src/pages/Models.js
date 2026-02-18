@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import './Models.css';
 import ConfirmDialog from '../components/ConfirmDialog';
 import Icon from '../components/Icon';
-import { exportModel, importModel } from '../main/ModelImportExport';
 
 const { ipcRenderer } = window.require('electron');
 const PUB = process.env.PUBLIC_URL;

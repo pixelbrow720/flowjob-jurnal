@@ -11,7 +11,7 @@ function DailyJournal() {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [entry, setEntry] = useState(null);
   const [editMode, setEditMode] = useState(false);
-  const [activeTab, setActiveTab] = useState('pre'); // 'pre' or 'post'
+  const [activeTab, setActiveTab] = useState('pre');
 
   useEffect(() => {
     loadEntries();
@@ -31,7 +31,6 @@ function DailyJournal() {
     if (found) {
       setEntry(found);
       setEditMode(false);
-      // Auto switch tab based on content
       if (found.execution_notes || found.what_worked) {
         setActiveTab('post');
       } else {
@@ -84,13 +83,11 @@ function DailyJournal() {
     }
   };
 
-  // Calculate stats
   const completedEntries = entries.filter(e => e.discipline_score);
   const avgDiscipline = completedEntries.length > 0
     ? (completedEntries.reduce((sum, e) => sum + (e.discipline_score || 0), 0) / completedEntries.length)
     : 0;
-  
-  // Discipline streak
+
   let streak = 0;
   const sortedEntries = [...entries].sort((a, b) => new Date(b.date) - new Date(a.date));
   for (const e of sortedEntries) {
@@ -108,8 +105,9 @@ function DailyJournal() {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: 24 }}>
-        {/* Enhanced Sidebar */}
+        {/* Sidebar */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
           {/* Stats Card */}
           <div style={{
             background: 'linear-gradient(135deg, rgba(134,112,255,0.08), rgba(255,0,149,0.04))',
@@ -118,7 +116,7 @@ function DailyJournal() {
             padding: 20,
           }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 16 }}>
-              📊 STATS
+              Stats
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <StatItem label="Avg Discipline" value={avgDiscipline.toFixed(1)} suffix="/10" color={avgDiscipline >= 7 ? PROFIT : avgDiscipline >= 5 ? WARN : LOSS} />
@@ -135,7 +133,7 @@ function DailyJournal() {
             padding: 20,
           }}>
             <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10, display: 'block' }}>
-              SELECT DATE
+              Select Date
             </label>
             <input
               type="date"
@@ -155,7 +153,7 @@ function DailyJournal() {
             overflowY: 'auto',
           }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 12, padding: '0 8px' }}>
-              RECENT ENTRIES
+              Recent Entries
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               {recentDates.map((e) => (
@@ -249,8 +247,8 @@ function DailyJournal() {
 
             {/* Tabs */}
             <div style={{ display: 'flex', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-elevated)' }}>
-              <Tab label="🌅 Pre-Market Plan" active={activeTab === 'pre'} onClick={() => setActiveTab('pre')} color={PROFIT} />
-              <Tab label="🌙 Post-Session Reflection" active={activeTab === 'post'} onClick={() => setActiveTab('post')} color={LOSS} />
+              <Tab label="Pre-Market Plan" active={activeTab === 'pre'} onClick={() => setActiveTab('pre')} color={PROFIT} />
+              <Tab label="Post-Session Reflection" active={activeTab === 'post'} onClick={() => setActiveTab('post')} color={LOSS} />
             </div>
 
             {/* Content */}
@@ -261,7 +259,6 @@ function DailyJournal() {
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
                       <FieldCard
                         label="Market Bias"
-                        icon="📈"
                         placeholder="Bullish, Bearish, or Neutral? Why?"
                         value={entry.market_bias}
                         onChange={(v) => updateField('market_bias', v)}
@@ -269,7 +266,6 @@ function DailyJournal() {
                       />
                       <FieldCard
                         label="Planned Setups"
-                        icon="🎯"
                         placeholder="Which models are you watching? What conditions are you looking for?"
                         value={entry.planned_setups}
                         onChange={(v) => updateField('planned_setups', v)}
@@ -278,7 +274,6 @@ function DailyJournal() {
                       />
                       <FieldCard
                         label="Risk Plan"
-                        icon="🛡️"
                         placeholder="Max loss today? Max trades? Position sizing rules?"
                         value={entry.risk_plan}
                         onChange={(v) => updateField('risk_plan', v)}
@@ -287,14 +282,11 @@ function DailyJournal() {
                       />
                       <FieldCard
                         label="Emotional State"
-                        icon="🧠"
                         placeholder="How are you feeling? Calm, anxious, confident, tired?"
                         value={entry.emotional_state_pre}
                         onChange={(v) => updateField('emotional_state_pre', v)}
                         disabled={!editMode}
                       />
-                      
-                      {/* Pre-market image */}
                       <ImageUploadCard
                         label="Chart Screenshot / Setup Image"
                         imagePath={entry.pre_market_image}
@@ -309,7 +301,6 @@ function DailyJournal() {
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
                       <FieldCard
                         label="Execution Notes"
-                        icon="⚡"
                         placeholder="Did you follow your plan? Any deviations? Were you disciplined?"
                         value={entry.execution_notes}
                         onChange={(v) => updateField('execution_notes', v)}
@@ -318,7 +309,6 @@ function DailyJournal() {
                       />
                       <FieldCard
                         label="What Worked"
-                        icon="✅"
                         placeholder="What went well today? What should you repeat?"
                         value={entry.what_worked}
                         onChange={(v) => updateField('what_worked', v)}
@@ -327,7 +317,6 @@ function DailyJournal() {
                       />
                       <FieldCard
                         label="What Didn't Work"
-                        icon="❌"
                         placeholder="What needs improvement? What mistakes did you make?"
                         value={entry.what_didnt_work}
                         onChange={(v) => updateField('what_didnt_work', v)}
@@ -336,7 +325,6 @@ function DailyJournal() {
                       />
                       <FieldCard
                         label="Lessons Learned"
-                        icon="💡"
                         placeholder="Key takeaways from today that will make you a better trader"
                         value={entry.lessons_learned}
                         onChange={(v) => updateField('lessons_learned', v)}
@@ -345,14 +333,11 @@ function DailyJournal() {
                       />
                       <FieldCard
                         label="Emotional State"
-                        icon="😌"
                         placeholder="How do you feel after today's session?"
                         value={entry.emotional_state_post}
                         onChange={(v) => updateField('emotional_state_post', v)}
                         disabled={!editMode}
                       />
-                      
-                      {/* Post-session image */}
                       <ImageUploadCard
                         label="Results Screenshot"
                         imagePath={entry.post_session_image}
@@ -369,7 +354,7 @@ function DailyJournal() {
                         padding: 20,
                       }}>
                         <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
-                          ⭐ Discipline Score
+                          Discipline Score
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
                           <input
@@ -415,7 +400,8 @@ function DailyJournal() {
   );
 }
 
-// Sub-components
+// ── Sub-components ─────────────────────────────────────────────────────────────
+
 function StatItem({ label, value, suffix, color }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -462,10 +448,10 @@ function Tab({ label, active, onClick, color }) {
   );
 }
 
-function FieldCard({ label, icon, placeholder, value, onChange, disabled, rows = 2 }) {
+function FieldCard({ label, placeholder, value, onChange, disabled, rows = 2 }) {
   const isTextarea = rows > 2;
   const Tag = isTextarea ? 'textarea' : 'input';
-  
+
   return (
     <div style={{
       background: 'var(--bg-tertiary)',
@@ -482,7 +468,6 @@ function FieldCard({ label, icon, placeholder, value, onChange, disabled, rows =
         color: 'var(--text-primary)',
         marginBottom: 10,
       }}>
-        <span style={{ fontSize: 16 }}>{icon}</span>
         {label}
       </label>
       <Tag
@@ -525,9 +510,9 @@ function ImageUploadCard({ label, imagePath, onUpload, onRemove, disabled }) {
         color: 'var(--text-primary)',
         marginBottom: 12,
       }}>
-        📷 {label}
+        <Icon name="preview" size={14} /> {label}
       </label>
-      
+
       {imagePath ? (
         <div style={{ position: 'relative' }}>
           <img
@@ -584,7 +569,7 @@ function ImageUploadCard({ label, imagePath, onUpload, onRemove, disabled }) {
             onMouseEnter={(e) => {
               e.target.style.background = 'rgba(134,112,255,0.1)';
               e.target.style.borderColor = 'rgba(134,112,255,0.5)';
-              e.target.style.color = PROFIT;
+              e.target.style.color = '#8670ff';
             }}
             onMouseLeave={(e) => {
               e.target.style.background = 'rgba(134,112,255,0.05)';
@@ -592,7 +577,7 @@ function ImageUploadCard({ label, imagePath, onUpload, onRemove, disabled }) {
               e.target.style.color = 'var(--text-secondary)';
             }}
           >
-            📷 Click to upload image
+            Click to upload image
           </button>
         )
       )}

@@ -15,13 +15,11 @@ function RiskDashboard() {
   const [editForm, setEditForm]   = useState({
     maxDailyDrawdown: 2,
     maxTotalDrawdown: 10,
-    profitTarget: 10,
-    consistencyPct: 80,
+    profitTarget:     10,
+    consistencyPct:   40,
   });
 
-  useEffect(() => {
-    loadAccounts();
-  }, []);
+  useEffect(() => { loadAccounts(); }, []);
 
   const loadAccounts = async () => {
     const accs = await ipcRenderer.invoke('get-accounts');
@@ -35,8 +33,8 @@ function RiskDashboard() {
     const parsed = savedSettings ? JSON.parse(savedSettings) : {
       maxDailyDrawdown: 2,
       maxTotalDrawdown: 10,
-      profitTarget: 10,
-      consistencyPct: 80,
+      profitTarget:     10,
+      consistencyPct:   40,
     };
     setSettings(parsed);
     setEditForm(parsed);
@@ -50,11 +48,11 @@ function RiskDashboard() {
     setEditMode(false);
   };
 
-  // Calculate metrics
-  const today = new Date().toISOString().split('T')[0];
+  // ── Metrics ───────────────────────────────────────────────────────────────
+  const today      = new Date().toISOString().split('T')[0];
   const todayTrades = trades.filter(t => t.date === today);
-  const todayPL     = todayTrades.reduce((s, t) => s + t.net_pl, 0);
-  const totalPL     = trades.reduce((s, t) => s + t.net_pl, 0);
+  const todayPL    = todayTrades.reduce((s, t) => s + t.net_pl, 0);
+  const totalPL    = trades.reduce((s, t) => s + t.net_pl, 0);
 
   // Max drawdown
   let cumPL = 0, peak = 0, maxDD = 0;
@@ -65,33 +63,46 @@ function RiskDashboard() {
     if (dd > maxDD) maxDD = dd;
   });
 
-  const capital = selected?.starting_balance || 25000;
+  const capital     = selected?.initial_balance || 25000;
   const dailyDDPct  = capital > 0 ? Math.abs(Math.min(todayPL, 0)) / capital * 100 : 0;
   const totalDDPct  = capital > 0 ? maxDD / capital * 100 : 0;
   const profitPct   = capital > 0 ? totalPL / capital * 100 : 0;
 
-  // Consistency: % of profitable days
+  // ── Consistency: daily profit must NOT exceed X% of profit target ─────────
+  // profitTargetDollar = capital * profitTarget%
+  // maxDailyAllowed    = profitTargetDollar * consistencyPct%
+  // A day is "consistent" if its profit <= maxDailyAllowed
+  const maxDailyDD   = settings.maxDailyDrawdown || 2;
+  const maxTotalDD   = settings.maxTotalDrawdown  || 10;
+  const targetPct    = settings.profitTarget      || 10;
+  const consPct      = settings.consistencyPct    || 40;
+
+  const profitTargetDollar = capital * (targetPct / 100);
+  const maxDailyAllowed    = profitTargetDollar * (consPct / 100);
+
+  // Group trades by day
   const dayMap = {};
   trades.forEach(t => {
     dayMap[t.date] = (dayMap[t.date] || 0) + t.net_pl;
   });
-  const dayVals = Object.values(dayMap);
-  const consPct = dayVals.length > 0
-    ? (dayVals.filter(v => v > 0).length / dayVals.length * 100)
-    : 0;
+  const dayVals       = Object.values(dayMap);
+  const tradingDays   = dayVals.length;
 
-  const maxDailyDD  = settings.maxDailyDrawdown || 2;
-  const maxTotalDD  = settings.maxTotalDrawdown  || 10;
-  const targetPct   = settings.profitTarget      || 10;
-  const consistTarget = settings.consistencyPct  || 80;
+  // Days where profit exceeded the daily cap (inconsistent days)
+  const inconsistentDays = dayVals.filter(v => v > maxDailyAllowed).length;
+  const consistentDays   = tradingDays - inconsistentDays;
+  const consistencyScore = tradingDays > 0 ? (consistentDays / tradingDays) * 100 : 100;
 
-  const dailyStatus  = dailyDDPct  >= maxDailyDD  ? 'breach' : dailyDDPct >= maxDailyDD * 0.7 ? 'warn' : 'ok';
-  const totalStatus  = totalDDPct  >= maxTotalDD   ? 'breach' : totalDDPct >= maxTotalDD * 0.7 ? 'warn' : 'ok';
-  const profitStatus = profitPct   >= targetPct    ? 'reached' : 'pending';
-  const consStatus   = consPct     >= consistTarget ? 'ok' : consPct >= consistTarget * 0.8 ? 'warn' : 'breach';
+  // Status helpers
+  const dailyStatus  = dailyDDPct >= maxDailyDD   ? 'breach' : dailyDDPct  >= maxDailyDD  * 0.7 ? 'warn' : 'ok';
+  const totalStatus  = totalDDPct >= maxTotalDD    ? 'breach' : totalDDPct  >= maxTotalDD  * 0.7 ? 'warn' : 'ok';
+  const profitStatus = profitPct  >= targetPct     ? 'reached' : 'pending';
+  // Consistency is "ok" when most days are under the cap
+  const consStatus   = inconsistentDays === 0 ? 'ok'
+    : inconsistentDays <= Math.ceil(tradingDays * 0.1) ? 'warn' : 'breach';
 
-  const statusColor = (s) => s === 'ok' || s === 'reached' ? PROFIT : s === 'warn' ? WARN : LOSS;
-  const statusLabel = (s) => ({ ok: 'SAFE', warn: 'WARNING', breach: 'BREACHED', reached: 'REACHED', pending: 'PENDING' }[s]);
+  const statusColor = (s) => ({ ok: PROFIT, warn: WARN, breach: LOSS, reached: PROFIT, pending: WARN }[s] || PROFIT);
+  const statusLabel = (s) => ({ ok: 'SAFE', warn: 'WARNING', breach: 'BREACHED', reached: 'REACHED', pending: 'PENDING' }[s] || s);
 
   return (
     <div className="fade-in">
@@ -126,7 +137,7 @@ function RiskDashboard() {
         </div>
       ) : (
         <>
-          {/* Settings card */}
+          {/* Settings Card */}
           <div style={{
             background: 'linear-gradient(135deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01))',
             border: '1px solid rgba(255,255,255,0.07)',
@@ -134,9 +145,22 @@ function RiskDashboard() {
             boxShadow: '0 4px 24px rgba(0,0,0,0.4)',
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-              <h3 style={{ fontSize: 16, fontWeight: 700 }}>
-                Risk Settings — {selected.name}
-              </h3>
+              <div>
+                <h3 style={{ fontSize: 16, fontWeight: 700 }}>Risk Settings — {selected.name}</h3>
+                <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+                  Capital: <strong style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>
+                    ${capital.toLocaleString()}
+                  </strong>
+                  &nbsp;·&nbsp;
+                  Profit Target: <strong style={{ color: PROFIT, fontFamily: 'var(--font-mono)' }}>
+                    ${profitTargetDollar.toLocaleString()}
+                  </strong>
+                  &nbsp;·&nbsp;
+                  Max Daily Allowed: <strong style={{ color: WARN, fontFamily: 'var(--font-mono)' }}>
+                    ${maxDailyAllowed.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  </strong>
+                </p>
+              </div>
               <button onClick={() => editMode ? saveSettings() : setEditMode(true)}
                 style={{
                   padding: '8px 20px', borderRadius: 8, cursor: 'pointer',
@@ -152,19 +176,20 @@ function RiskDashboard() {
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
               {[
-                { key: 'maxDailyDrawdown', label: 'Max Daily DD %', icon: 'down', suffix: '%' },
-                { key: 'maxTotalDrawdown', label: 'Max Total DD %', icon: 'down', suffix: '%' },
-                { key: 'profitTarget',     label: 'Profit Target %', icon: 'target', suffix: '%' },
-                { key: 'consistencyPct',   label: 'Consistency Goal', icon: 'chart', suffix: '%' },
-              ].map(({ key, label, icon, suffix }) => (
+                { key: 'maxDailyDrawdown', label: 'Max Daily DD %',      icon: 'down',   suffix: '%', desc: 'Max loss per day as % of capital' },
+                { key: 'maxTotalDrawdown', label: 'Max Total DD %',       icon: 'down',   suffix: '%', desc: 'Max total drawdown as % of capital' },
+                { key: 'profitTarget',     label: 'Profit Target %',      icon: 'target', suffix: '%', desc: `Goal: $${profitTargetDollar.toLocaleString(undefined, { maximumFractionDigits: 0 })}` },
+                { key: 'consistencyPct',   label: 'Max Daily Profit %',   icon: 'chart',  suffix: '%', desc: `Max/day: $${maxDailyAllowed.toLocaleString(undefined, { maximumFractionDigits: 0 })} of profit target` },
+              ].map(({ key, label, icon, suffix, desc }) => (
                 <div key={key} style={{
                   background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)',
                   borderRadius: 10, padding: '14px 16px',
                 }}>
                   <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase',
-                    letterSpacing: '0.5px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    letterSpacing: '0.5px', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
                     <Icon name={icon} size={12} color="muted" /> {label}
                   </div>
+                  <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 8 }}>{desc}</div>
                   {editMode ? (
                     <input type="number" step="0.5" min="0"
                       value={editForm[key]}
@@ -173,8 +198,7 @@ function RiskDashboard() {
                         background: 'var(--bg-elevated)', border: '1px solid var(--accent-primary)',
                         borderRadius: 6, padding: '4px 8px', color: 'var(--text-primary)' }} />
                   ) : (
-                    <div style={{ fontSize: 28, fontWeight: 800, fontFamily: 'JetBrains Mono,monospace',
-                      color: PROFIT }}>
+                    <div style={{ fontSize: 28, fontWeight: 800, fontFamily: 'JetBrains Mono,monospace', color: PROFIT }}>
                       {settings[key]}{suffix}
                     </div>
                   )}
@@ -187,63 +211,66 @@ function RiskDashboard() {
           <div className="content-grid grid-4" style={{ marginBottom: 24 }}>
             {[
               {
-                label: 'Daily Drawdown',
+                label:   'Daily Drawdown',
                 current: `${dailyDDPct.toFixed(2)}%`,
-                limit: `Limit: ${maxDailyDD}%`,
-                status: dailyStatus,
-                bar: Math.min(dailyDDPct / maxDailyDD * 100, 100),
+                sub:     `$${Math.abs(Math.min(todayPL, 0)).toFixed(2)} today`,
+                limit:   `Limit: ${maxDailyDD}% ($${(capital * maxDailyDD / 100).toFixed(0)})`,
+                status:  dailyStatus,
+                bar:     Math.min(dailyDDPct / maxDailyDD * 100, 100),
               },
               {
-                label: 'Total Drawdown',
+                label:   'Total Drawdown',
                 current: `${totalDDPct.toFixed(2)}%`,
-                limit: `Limit: ${maxTotalDD}%`,
-                status: totalStatus,
-                bar: Math.min(totalDDPct / maxTotalDD * 100, 100),
+                sub:     `-$${maxDD.toFixed(2)}`,
+                limit:   `Limit: ${maxTotalDD}% ($${(capital * maxTotalDD / 100).toFixed(0)})`,
+                status:  totalStatus,
+                bar:     Math.min(totalDDPct / maxTotalDD * 100, 100),
               },
               {
-                label: 'Profit Progress',
+                label:   'Profit Progress',
                 current: `${profitPct.toFixed(2)}%`,
-                limit: `Target: ${targetPct}%`,
-                status: profitStatus,
-                bar: Math.min(profitPct / targetPct * 100, 100),
+                sub:     `$${totalPL.toFixed(2)}`,
+                limit:   `Target: ${targetPct}% ($${profitTargetDollar.toFixed(0)})`,
+                status:  profitStatus,
+                bar:     Math.min(Math.max(profitPct / targetPct * 100, 0), 100),
               },
               {
-                label: 'Consistency',
-                current: `${consPct.toFixed(1)}%`,
-                limit: `Target: ${consistTarget}%`,
-                status: consStatus,
-                bar: Math.min(consPct / consistTarget * 100, 100),
+                label:   'Consistency',
+                current: `${consistencyScore.toFixed(0)}%`,
+                sub:     `${inconsistentDays} day${inconsistentDays !== 1 ? 's' : ''} exceeded cap`,
+                limit:   `Max/day: $${maxDailyAllowed.toFixed(0)} (${consPct}% of target)`,
+                status:  consStatus,
+                bar:     consistencyScore,
               },
             ].map((card, i) => (
               <div key={i} style={{
                 background: 'linear-gradient(135deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01))',
                 border: `1px solid ${statusColor(card.status)}33`,
                 borderRadius: 14, padding: 20,
-                boxShadow: `0 4px 16px rgba(0,0,0,0.3)`,
+                boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
               }}>
                 <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)',
-                  textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>
+                  textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 6 }}>
                   {card.label}
                 </div>
                 <div style={{ fontSize: 30, fontWeight: 800, fontFamily: 'JetBrains Mono,monospace',
-                  color: statusColor(card.status), marginBottom: 4 }}>
+                  color: statusColor(card.status), marginBottom: 2 }}>
                   {card.current}
                 </div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
+                <div style={{ fontSize: 12, color: PROFIT, fontFamily: 'var(--font-mono)', marginBottom: 4 }}>
+                  {card.sub}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 12 }}>
                   {card.limit}
                 </div>
-                {/* Progress bar */}
                 <div style={{ height: 5, background: 'var(--bg-elevated)', borderRadius: 3, overflow: 'hidden' }}>
                   <div style={{
-                    height: '100%',
-                    width: `${card.bar}%`,
-                    background: statusColor(card.status),
-                    borderRadius: 3,
+                    height: '100%', width: `${card.bar}%`,
+                    background: statusColor(card.status), borderRadius: 3,
                     transition: 'width 0.6s ease',
                     boxShadow: `0 0 8px ${statusColor(card.status)}88`,
                   }} />
                 </div>
-                {/* Status badge */}
                 <div style={{
                   display: 'inline-block', marginTop: 10,
                   padding: '3px 10px', borderRadius: 20,
@@ -258,7 +285,66 @@ function RiskDashboard() {
             ))}
           </div>
 
-          {/* Today's trades */}
+          {/* Consistency Detail */}
+          {tradingDays > 0 && (
+            <div style={{
+              background: 'linear-gradient(135deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01))',
+              border: '1px solid rgba(255,255,255,0.07)',
+              borderRadius: 16, padding: 24, marginBottom: 24,
+              boxShadow: '0 4px 24px rgba(0,0,0,0.4)',
+            }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 16 }}>
+                Daily Profit Breakdown
+                <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 10 }}>
+                  Cap: ${maxDailyAllowed.toFixed(0)}/day ({consPct}% of ${profitTargetDollar.toFixed(0)} target)
+                </span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {Object.entries(dayMap)
+                  .sort((a, b) => new Date(b[0]) - new Date(a[0]))
+                  .slice(0, 14)
+                  .map(([date, pl]) => {
+                    const exceeded = pl > maxDailyAllowed;
+                    const barPct   = Math.min(Math.abs(pl) / Math.max(maxDailyAllowed * 2, 1) * 100, 100);
+                    return (
+                      <div key={date} style={{
+                        display: 'grid', gridTemplateColumns: '100px 1fr 120px 80px',
+                        gap: 12, alignItems: 'center',
+                        background: exceeded ? 'rgba(255,0,149,0.05)' : 'var(--bg-tertiary)',
+                        border: `1px solid ${exceeded ? 'rgba(255,0,149,0.2)' : 'var(--border-color)'}`,
+                        borderRadius: 8, padding: '10px 14px',
+                      }}>
+                        <span style={{ fontSize: 12, color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+                          {new Date(date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        </span>
+                        <div style={{ height: 6, background: 'var(--bg-elevated)', borderRadius: 3, overflow: 'hidden' }}>
+                          <div style={{
+                            height: '100%', width: `${barPct}%`,
+                            background: pl >= 0 ? (exceeded ? LOSS : PROFIT) : LOSS,
+                            borderRadius: 3,
+                          }} />
+                        </div>
+                        <span style={{
+                          fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 13,
+                          color: pl >= 0 ? (exceeded ? LOSS : PROFIT) : LOSS,
+                          textAlign: 'right',
+                        }}>
+                          {pl >= 0 ? '+' : ''}${pl.toFixed(2)}
+                        </span>
+                        <span style={{
+                          fontSize: 10, fontWeight: 700, textAlign: 'right',
+                          color: exceeded ? LOSS : PROFIT,
+                        }}>
+                          {exceeded ? 'EXCEEDED' : 'OK'}
+                        </span>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+          )}
+
+          {/* Today's Trades */}
           <div style={{
             background: 'linear-gradient(135deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01))',
             border: '1px solid rgba(255,255,255,0.07)',

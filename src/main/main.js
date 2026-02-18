@@ -159,7 +159,7 @@ ipcMain.handle('select-file', async (event, opts = {}) => {
     properties: ['openFile'],
     filters
   });
-  
+
   if (!result.canceled && result.filePaths.length > 0) {
     return result.filePaths[0];
   }
@@ -169,14 +169,14 @@ ipcMain.handle('select-file', async (event, opts = {}) => {
 ipcMain.handle('save-screenshot', async (event, sourcePath) => {
   const userDataPath = app.getPath('userData');
   const screenshotsDir = path.join(userDataPath, 'screenshots');
-  
+
   if (!fs.existsSync(screenshotsDir)) {
     fs.mkdirSync(screenshotsDir, { recursive: true });
   }
-  
+
   const fileName = `screenshot-${Date.now()}${path.extname(sourcePath)}`;
   const destPath = path.join(screenshotsDir, fileName);
-  
+
   fs.copyFileSync(sourcePath, destPath);
   return destPath;
 });
@@ -184,26 +184,26 @@ ipcMain.handle('save-screenshot', async (event, sourcePath) => {
 ipcMain.handle('save-screenshot-from-buffer', async (event, buffer) => {
   const userDataPath = app.getPath('userData');
   const screenshotsDir = path.join(userDataPath, 'screenshots');
-  
+
   if (!fs.existsSync(screenshotsDir)) {
     fs.mkdirSync(screenshotsDir, { recursive: true });
   }
-  
+
   const fileName = `screenshot-${Date.now()}.png`;
   const destPath = path.join(screenshotsDir, fileName);
-  
+
   fs.writeFileSync(destPath, buffer);
   return destPath;
 });
 
-// ─── Export Operations ────────────────────────────────────────────────────────
+// ─── Export CSV ───────────────────────────────────────────────────────────────
 
 ipcMain.handle('export-csv', async () => {
   const result = await dialog.showSaveDialog(mainWindow, {
     filters: [{ name: 'CSV', extensions: ['csv'] }],
     defaultPath: `trades-${new Date().toISOString().split('T')[0]}.csv`
   });
-  
+
   if (!result.canceled) {
     const trades = db.getTrades();
     const csv = convertToCSV(trades);
@@ -213,51 +213,12 @@ ipcMain.handle('export-csv', async () => {
   return null;
 });
 
-// Export single model as JSON
-ipcMain.handle('export-model', async (event, modelId) => {
-  const result = await dialog.showSaveDialog(mainWindow, {
-    filters: [{ name: 'Flowjob Model', extensions: ['fjmodel'] }],
-    defaultPath: `model-${Date.now()}.fjmodel`
-  });
-  
-  if (!result.canceled) {
-    const model = db.getModel(modelId);
-    if (model) {
-      // Don't include id and timestamps in export
-      const { id, created_at, updated_at, ...exportData } = model;
-      fs.writeFileSync(result.filePath, JSON.stringify(exportData, null, 2));
-      return result.filePath;
-    }
-  }
-  return null;
-});
-
-// Import model from JSON
-ipcMain.handle('import-model', async () => {
-  const result = await dialog.showOpenDialog(mainWindow, {
-    properties: ['openFile'],
-    filters: [{ name: 'Flowjob Model', extensions: ['fjmodel', 'json'] }]
-  });
-  
-  if (!result.canceled && result.filePaths.length > 0) {
-    try {
-      const content = fs.readFileSync(result.filePaths[0], 'utf8');
-      const modelData = JSON.parse(content);
-      const newId = db.createModel(modelData);
-      return { success: true, id: newId };
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
-  }
-  return { success: false };
-});
-
 ipcMain.handle('export-backup', async () => {
   const result = await dialog.showSaveDialog(mainWindow, {
     filters: [{ name: 'JSON', extensions: ['json'] }],
     defaultPath: `backup-${new Date().toISOString().split('T')[0]}.json`
   });
-  
+
   if (!result.canceled) {
     const data = db.exportToJSON();
     fs.writeFileSync(result.filePath, JSON.stringify(data, null, 2));
@@ -272,7 +233,7 @@ function convertToCSV(trades) {
     'Size', 'R-Multiple', 'Net P/L', 'Outcome',
     'Notes', 'Emotional State', 'Rule Violation'
   ];
-  
+
   const rows = trades.map(t => [
     t.date,
     t.account_name || '',
@@ -290,39 +251,46 @@ function convertToCSV(trades) {
     t.emotional_state || '',
     t.rule_violation ? 'Yes' : 'No'
   ]);
-  
+
   return [headers, ...rows].map(row => row.join(',')).join('\n');
 }
 
-// Settings key-value store
+// ─── Settings ─────────────────────────────────────────────────────────────────
+
 ipcMain.handle('get-setting', async (event, key) => {
   return db.getSetting(key);
 });
+
 ipcMain.handle('set-setting', async (event, key, value) => {
   return db.setSetting(key, value);
 });
 
-// Daily Journal
+// ─── Daily Journal ────────────────────────────────────────────────────────────
+
 ipcMain.handle('get-daily-journals', async () => {
   return db.getDailyJournals();
 });
+
 ipcMain.handle('get-daily-journal', async (event, date) => {
   return db.getDailyJournal(date);
 });
+
 ipcMain.handle('save-daily-journal', async (event, journal) => {
   return db.saveDailyJournal(journal);
 });
+
 ipcMain.handle('delete-daily-journal', async (event, date) => {
   return db.deleteDailyJournal(date);
 });
 
-// Model Export/Import
+// ─── Model Export / Import ────────────────────────────────────────────────────
+
 ipcMain.handle('export-model', async (event, modelId) => {
   const result = await dialog.showSaveDialog(mainWindow, {
     filters: [{ name: 'Flowjob Model', extensions: ['fjmodel'] }],
     defaultPath: `model-${Date.now()}.fjmodel`
   });
-  
+
   if (!result.canceled) {
     try {
       await modelExportImport.exportModel(modelId, result.filePath);
@@ -336,10 +304,10 @@ ipcMain.handle('export-model', async (event, modelId) => {
 
 ipcMain.handle('import-model', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
-    filters: [{ name: 'Flowjob Model', extensions: ['fjmodel'] }],
+    filters: [{ name: 'Flowjob Model', extensions: ['fjmodel', 'json'] }],
     properties: ['openFile']
   });
-  
+
   if (!result.canceled && result.filePaths.length > 0) {
     try {
       const userDataPath = app.getPath('userData');
@@ -352,13 +320,14 @@ ipcMain.handle('import-model', async () => {
   return { success: false, canceled: true };
 });
 
-// PDF Reports
+// ─── PDF Reports ──────────────────────────────────────────────────────────────
+
 ipcMain.handle('export-pdf-daily', async (event, date) => {
   const result = await dialog.showSaveDialog(mainWindow, {
     filters: [{ name: 'PDF', extensions: ['pdf'] }],
     defaultPath: `daily-report-${date}.pdf`
   });
-  
+
   if (!result.canceled) {
     try {
       pdfExporter.generateDailyReport(date, result.filePath);
@@ -375,7 +344,7 @@ ipcMain.handle('export-pdf-weekly', async (event, startDate, endDate) => {
     filters: [{ name: 'PDF', extensions: ['pdf'] }],
     defaultPath: `weekly-report-${startDate}-to-${endDate}.pdf`
   });
-  
+
   if (!result.canceled) {
     try {
       pdfExporter.generateWeeklyReport(startDate, endDate, result.filePath);
@@ -392,10 +361,27 @@ ipcMain.handle('export-pdf-monthly', async (event, year, month) => {
     filters: [{ name: 'PDF', extensions: ['pdf'] }],
     defaultPath: `monthly-report-${year}-${String(month).padStart(2, '0')}.pdf`
   });
-  
+
   if (!result.canceled) {
     try {
       pdfExporter.generateMonthlyReport(year, month, result.filePath);
+      return { success: true, path: result.filePath };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  }
+  return { success: false, canceled: true };
+});
+
+ipcMain.handle('export-pdf-custom', async (event, startDate, endDate) => {
+  const result = await dialog.showSaveDialog(mainWindow, {
+    filters: [{ name: 'PDF', extensions: ['pdf'] }],
+    defaultPath: `custom-report-${startDate}-to-${endDate}.pdf`
+  });
+
+  if (!result.canceled) {
+    try {
+      pdfExporter.generateCustomReport(startDate, endDate, result.filePath);
       return { success: true, path: result.filePath };
     } catch (error) {
       return { success: false, error: error.message };
