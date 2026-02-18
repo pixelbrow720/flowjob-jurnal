@@ -115,11 +115,13 @@ class DatabaseManager {
         planned_setups TEXT,
         risk_plan TEXT,
         emotional_state_pre TEXT,
+        pre_market_image TEXT,
         execution_notes TEXT,
         what_worked TEXT,
         what_didnt_work TEXT,
         lessons_learned TEXT,
         emotional_state_post TEXT,
+        post_session_image TEXT,
         discipline_score INTEGER DEFAULT 5,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -612,24 +614,24 @@ class DatabaseManager {
     if (existing) {
       return this.db.prepare(`
         UPDATE daily_journals SET
-          market_bias = ?, planned_setups = ?, risk_plan = ?, emotional_state_pre = ?,
+          market_bias = ?, planned_setups = ?, risk_plan = ?, emotional_state_pre = ?, pre_market_image = ?,
           execution_notes = ?, what_worked = ?, what_didnt_work = ?, lessons_learned = ?,
-          emotional_state_post = ?, discipline_score = ?, updated_at = CURRENT_TIMESTAMP
+          emotional_state_post = ?, post_session_image = ?, discipline_score = ?, updated_at = CURRENT_TIMESTAMP
         WHERE date = ?
       `).run(
-        journal.market_bias, journal.planned_setups, journal.risk_plan, journal.emotional_state_pre,
+        journal.market_bias, journal.planned_setups, journal.risk_plan, journal.emotional_state_pre, journal.pre_market_image,
         journal.execution_notes, journal.what_worked, journal.what_didnt_work, journal.lessons_learned,
-        journal.emotional_state_post, journal.discipline_score, journal.date
+        journal.emotional_state_post, journal.post_session_image, journal.discipline_score, journal.date
       );
     } else {
       return this.db.prepare(`
-        INSERT INTO daily_journals (date, market_bias, planned_setups, risk_plan, emotional_state_pre,
-          execution_notes, what_worked, what_didnt_work, lessons_learned, emotional_state_post, discipline_score)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO daily_journals (date, market_bias, planned_setups, risk_plan, emotional_state_pre, pre_market_image,
+          execution_notes, what_worked, what_didnt_work, lessons_learned, emotional_state_post, post_session_image, discipline_score)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
-        journal.date, journal.market_bias, journal.planned_setups, journal.risk_plan, journal.emotional_state_pre,
+        journal.date, journal.market_bias, journal.planned_setups, journal.risk_plan, journal.emotional_state_pre, journal.pre_market_image,
         journal.execution_notes, journal.what_worked, journal.what_didnt_work, journal.lessons_learned,
-        journal.emotional_state_post, journal.discipline_score
+        journal.emotional_state_post, journal.post_session_image, journal.discipline_score
       );
     }
   }

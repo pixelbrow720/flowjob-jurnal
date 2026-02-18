@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import './Models.css';
 import ConfirmDialog from '../components/ConfirmDialog';
 import Icon from '../components/Icon';
+import { exportModel, importModel } from '../main/ModelImportExport';
 
 const { ipcRenderer } = window.require('electron');
 const PUB = process.env.PUBLIC_URL;
@@ -48,6 +49,25 @@ function Models() {
     await ipcRenderer.invoke('delete-model', confirmDelete.id);
     setConfirmDelete(null);
     loadModels();
+  };
+
+  const handleImportModel = async () => {
+    const result = await ipcRenderer.invoke('import-model');
+    if (result.success) {
+      loadModels();
+      alert('Model imported successfully!');
+    } else if (!result.canceled) {
+      alert(`Import failed: ${result.error}`);
+    }
+  };
+
+  const handleExportModel = async (modelId, modelName) => {
+    const result = await ipcRenderer.invoke('export-model', modelId);
+    if (result.success) {
+      alert(`Model "${modelName}" exported successfully!`);
+    } else if (!result.canceled) {
+      alert(`Export failed: ${result.error}`);
+    }
   };
 
   const handleSelectImage = async () => {
@@ -122,7 +142,12 @@ function Models() {
         <h1 className="page-title">Trading Models</h1>
         <p className="page-subtitle">Build and manage your trading systems</p>
         <div className="page-actions">
-          <button className="btn btn-primary" onClick={() => openModal()}>+ Create New Model</button>
+          <button className="btn btn-secondary" onClick={handleImportModel}>
+            <Icon name="analytics" size={14} style={{ marginRight: 6 }} /> Import Model
+          </button>
+          <button className="btn btn-primary" onClick={() => openModal()}>
+            <Icon name="target" size={14} style={{ marginRight: 6 }} /> Create New Model
+          </button>
         </div>
       </div>
 
@@ -141,6 +166,7 @@ function Models() {
               model={model}
               onPreview={() => setPreviewModel(model)}
               onEdit={() => openModal(model)}
+              onExport={() => handleExportModel(model.id, model.name)}
               onDelete={() => handleDelete(model)}
             />
           ))}
@@ -463,7 +489,7 @@ function Models() {
 }
 
 /* ── Model Card ─────────────────────────────────────────────────────────── */
-function ModelCard({ model, onPreview, onEdit, onDelete }) {
+function ModelCard({ model, onPreview, onEdit, onExport, onDelete }) {
   return (
     <div className="model-card">
       {model.screenshot_path && (
@@ -503,6 +529,10 @@ function ModelCard({ model, onPreview, onEdit, onDelete }) {
         <button className="btn btn-action btn-edit" onClick={onEdit}>
           <img src={`${process.env.PUBLIC_URL}/pencil.png`} alt="" className="btn-icon" />
           Edit
+        </button>
+        <button className="btn btn-action btn-preview" onClick={onExport}>
+          <img src={`${process.env.PUBLIC_URL}/rise.png`} alt="" className="btn-icon" />
+          Export
         </button>
         <button className="btn btn-action btn-delete" onClick={onDelete}>
           <img src={`${process.env.PUBLIC_URL}/trash-can.png`} alt="" className="btn-icon" />

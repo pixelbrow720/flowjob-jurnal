@@ -2,9 +2,13 @@ const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const DatabaseManager = require('./database');
+const ModelExportImport = require('./ModelImportExport');
+const PDFExporter = require('./PDFExporter');
 
 let mainWindow;
 let db;
+let modelExportImport;
+let pdfExporter;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -36,6 +40,8 @@ function createWindow() {
 
 app.on('ready', () => {
   db = new DatabaseManager();
+  modelExportImport = new ModelExportImport(db);
+  pdfExporter = new PDFExporter(db);
   createWindow();
 });
 
@@ -175,6 +181,21 @@ ipcMain.handle('save-screenshot', async (event, sourcePath) => {
   return destPath;
 });
 
+ipcMain.handle('save-screenshot-from-buffer', async (event, buffer) => {
+  const userDataPath = app.getPath('userData');
+  const screenshotsDir = path.join(userDataPath, 'screenshots');
+  
+  if (!fs.existsSync(screenshotsDir)) {
+    fs.mkdirSync(screenshotsDir, { recursive: true });
+  }
+  
+  const fileName = `screenshot-${Date.now()}.png`;
+  const destPath = path.join(screenshotsDir, fileName);
+  
+  fs.writeFileSync(destPath, buffer);
+  return destPath;
+});
+
 // ─── Export Operations ────────────────────────────────────────────────────────
 
 ipcMain.handle('export-csv', async () => {
@@ -190,6 +211,45 @@ ipcMain.handle('export-csv', async () => {
     return result.filePath;
   }
   return null;
+});
+
+// Export single model as JSON
+ipcMain.handle('export-model', async (event, modelId) => {
+  const result = await dialog.showSaveDialog(mainWindow, {
+    filters: [{ name: 'Flowjob Model', extensions: ['fjmodel'] }],
+    defaultPath: `model-${Date.now()}.fjmodel`
+  });
+  
+  if (!result.canceled) {
+    const model = db.getModel(modelId);
+    if (model) {
+      // Don't include id and timestamps in export
+      const { id, created_at, updated_at, ...exportData } = model;
+      fs.writeFileSync(result.filePath, JSON.stringify(exportData, null, 2));
+      return result.filePath;
+    }
+  }
+  return null;
+});
+
+// Import model from JSON
+ipcMain.handle('import-model', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openFile'],
+    filters: [{ name: 'Flowjob Model', extensions: ['fjmodel', 'json'] }]
+  });
+  
+  if (!result.canceled && result.filePaths.length > 0) {
+    try {
+      const content = fs.readFileSync(result.filePaths[0], 'utf8');
+      const modelData = JSON.parse(content);
+      const newId = db.createModel(modelData);
+      return { success: true, id: newId };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  }
+  return { success: false };
 });
 
 ipcMain.handle('export-backup', async () => {
@@ -254,4 +314,92 @@ ipcMain.handle('save-daily-journal', async (event, journal) => {
 });
 ipcMain.handle('delete-daily-journal', async (event, date) => {
   return db.deleteDailyJournal(date);
+});
+
+// Model Export/Import
+ipcMain.handle('export-model', async (event, modelId) => {
+  const result = await dialog.showSaveDialog(mainWindow, {
+    filters: [{ name: 'Flowjob Model', extensions: ['fjmodel'] }],
+    defaultPath: `model-${Date.now()}.fjmodel`
+  });
+  
+  if (!result.canceled) {
+    try {
+      await modelExportImport.exportModel(modelId, result.filePath);
+      return { success: true, path: result.filePath };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  }
+  return { success: false, canceled: true };
+});
+
+ipcMain.handle('import-model', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    filters: [{ name: 'Flowjob Model', extensions: ['fjmodel'] }],
+    properties: ['openFile']
+  });
+  
+  if (!result.canceled && result.filePaths.length > 0) {
+    try {
+      const userDataPath = app.getPath('userData');
+      const modelId = await modelExportImport.importModel(result.filePaths[0], userDataPath);
+      return { success: true, modelId };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  }
+  return { success: false, canceled: true };
+});
+
+// PDF Reports
+ipcMain.handle('export-pdf-daily', async (event, date) => {
+  const result = await dialog.showSaveDialog(mainWindow, {
+    filters: [{ name: 'PDF', extensions: ['pdf'] }],
+    defaultPath: `daily-report-${date}.pdf`
+  });
+  
+  if (!result.canceled) {
+    try {
+      pdfExporter.generateDailyReport(date, result.filePath);
+      return { success: true, path: result.filePath };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  }
+  return { success: false, canceled: true };
+});
+
+ipcMain.handle('export-pdf-weekly', async (event, startDate, endDate) => {
+  const result = await dialog.showSaveDialog(mainWindow, {
+    filters: [{ name: 'PDF', extensions: ['pdf'] }],
+    defaultPath: `weekly-report-${startDate}-to-${endDate}.pdf`
+  });
+  
+  if (!result.canceled) {
+    try {
+      pdfExporter.generateWeeklyReport(startDate, endDate, result.filePath);
+      return { success: true, path: result.filePath };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  }
+  return { success: false, canceled: true };
+});
+
+ipcMain.handle('export-pdf-monthly', async (event, year, month) => {
+  const result = await dialog.showSaveDialog(mainWindow, {
+    filters: [{ name: 'PDF', extensions: ['pdf'] }],
+    defaultPath: `monthly-report-${year}-${String(month).padStart(2, '0')}.pdf`
+  });
+  
+  if (!result.canceled) {
+    try {
+      pdfExporter.generateMonthlyReport(year, month, result.filePath);
+      return { success: true, path: result.filePath };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  }
+  return { success: false, canceled: true };
 });
