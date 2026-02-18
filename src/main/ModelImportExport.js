@@ -102,6 +102,26 @@ class ModelExportImport {
     delete modelData.created_at;
     delete modelData.updated_at;
 
+    // ── Provide safe defaults for NOT NULL columns ──────────────────────────
+    // These are required by the DB schema and must never be null on insert.
+    const MARKET_TYPE_VALUES = ['forex', 'futures', 'stocks', 'crypto', 'options', 'indices'];
+    if (!modelData.market_type || !MARKET_TYPE_VALUES.includes(modelData.market_type)) {
+      modelData.market_type = modelData.market_type || 'futures';
+    }
+    if (!modelData.name) {
+      modelData.name = `Imported Model ${new Date().toLocaleDateString()}`;
+    }
+    if (!modelData.description) {
+      modelData.description = '';
+    }
+    // Ensure JSON fields are strings, not objects (SQLite stores as TEXT)
+    const jsonFields = ['playbookSteps', 'rules', 'tags', 'timeframes', 'criteria'];
+    jsonFields.forEach(field => {
+      if (modelData[field] !== undefined && typeof modelData[field] !== 'string') {
+        modelData[field] = JSON.stringify(modelData[field]);
+      }
+    });
+
     return this.db.createModel(modelData);
   }
 }

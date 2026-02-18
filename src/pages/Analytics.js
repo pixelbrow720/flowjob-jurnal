@@ -199,7 +199,7 @@ export default function Analytics() {
           <AStat label="Max Drawdown"  value={`-$${S.maxDD.toFixed(2)}`}                                     col="col-loss"   desc="Largest peak-to-trough in equity" />
           <AStat label="Sharpe Ratio"  value={S.sharpe.toFixed(2)}                                            col={S.sharpe>=1?'col-profit':S.sharpe>=0?'col-warn':'col-loss'} desc="(AvgReturn/StdDev)×√252" />
           <AStat label="Sortino Ratio" value={S.sortino.toFixed(2)}                                           col={S.sortino>=1?'col-profit':S.sortino>=0?'col-warn':'col-loss'} desc="Sharpe adjusted for downside vol" />
-          <AStat label="Calmar Ratio"  value={S.calmar>=999?'∞':S.calmar.toFixed(2)}                         col={S.calmar>=1?'col-profit':'col-warn'} desc="Net P/L ÷ Max drawdown" />
+          <AStat label="Calmar Ratio"  value={S.calmar>=999?'∞':S.calmar.toFixed(2)}                         col={S.calmar>=1?'col-profit':S.calmar>=0?'col-warn':'col-loss'} desc="Net P/L ÷ Max drawdown" />
           <AStat label="Payoff Ratio"  value={S.avgLoss>0?(S.avgWin/S.avgLoss).toFixed(2):'∞'}               col={S.avgWin>=S.avgLoss?'col-profit':'col-warn'} desc="Avg win ÷ avg loss" />
           <AStat label="Std Deviation" value={`$${S.std.toFixed(2)}`}                                         col="col-base"   desc="Per-trade P/L volatility" />
           <AStat label="Best Streak"   value={`${streaks.bestWin}W`}                                          col="col-profit" sub={`Avg win streak: ${streaks.avgWin.toFixed(1)}`} />
@@ -472,16 +472,17 @@ export default function Analytics() {
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
                 data={[
-                  {m:'Win Rate', Long:ls[0].wr,            Short:ls[1].wr},
-                  {m:'Avg Win',  Long:ls[0].avgWin/10,     Short:ls[1].avgWin/10},
-                  {m:'Avg Loss', Long:ls[0].avgLoss/10,    Short:ls[1].avgLoss/10},
-                  {m:'PF×25',    Long:Math.min(ls[0].pf*25,100), Short:Math.min(ls[1].pf*25,100)},
+                  {m:'Win Rate %', Long:+ls[0].wr.toFixed(1),     Short:+ls[1].wr.toFixed(1)},
+                  {m:'PF Score',   Long:+Math.min(ls[0].pf/3*100,100).toFixed(1), Short:+Math.min(ls[1].pf/3*100,100).toFixed(1)},
+                  {m:'Payoff×20',  Long:+Math.min(ls[0].avgLoss>0?(ls[0].avgWin/ls[0].avgLoss)*20:100,100).toFixed(1),
+                                   Short:+Math.min(ls[1].avgLoss>0?(ls[1].avgWin/ls[1].avgLoss)*20:100,100).toFixed(1)},
                 ]}
                 margin={{...MAR,left:8}} barCategoryGap="22%">
                 <CartesianGrid {...GRID_P} />
                 <XAxis dataKey="m" tick={TICK} tickLine={false} axisLine={false} />
-                <YAxis tick={TICK} tickLine={false} axisLine={false} />
+                <YAxis tick={TICK} tickLine={false} axisLine={false} domain={[0,100]} tickFormatter={v=>`${v}`} />
                 <Tooltip contentStyle={{background:'#060610',border:'1px solid #2a2a3a',borderRadius:10,fontSize:12}} itemStyle={{color:'#e8edf3'}} />
+                <ReferenceLine y={50} stroke="#2a2a3a" strokeDasharray="4 4" />
                 <Bar dataKey="Long"  fill={C.profit} fillOpacity={0.85} radius={[4,4,0,0]} maxBarSize={32} />
                 <Bar dataKey="Short" fill={C.blue}   fillOpacity={0.85} radius={[4,4,0,0]} maxBarSize={32} />
               </BarChart>
@@ -680,6 +681,8 @@ function SeqBar({ trades }) {
 }
 
 function HeatmapGrid({ data }) {
+  // Dynamic scale: find max absolute P/L in this period for opacity normalization
+  const maxAbs=Math.max(...data.map(d=>d.pl!=null?Math.abs(d.pl):0),1);
   return (
     <div>
       <div style={{display:'flex',gap:4,marginBottom:6}}>
@@ -691,10 +694,10 @@ function HeatmapGrid({ data }) {
         {data.map((d,i)=>{
           if (!d.date) return <div key={i} />;
           const hasPL  = d.pl !== null && d.pl !== 0;
-          const maxAbs = 1;
           let bg = 'rgba(255,255,255,0.025)';
           if (hasPL) {
-            const op = Math.min(0.18 + Math.abs(d.pl) / 1000 * 0.5, 0.85);
+            // Scale opacity 0.18–0.88 relative to the largest day in the period
+            const op = Math.min(0.18 + (Math.abs(d.pl)/maxAbs)*0.7, 0.88);
             bg = d.pl>0 ? `rgba(134,112,255,${op})` : `rgba(255,0,149,${op})`;
           }
           const day = new Date(d.date+'T00:00:00');
@@ -799,13 +802,17 @@ function buildDrawdown(trades) {
 }
 
 function buildMonthly(trades) {
+  // Sort first — Object insertion order determines chart order and cumPL correctness
+  const sorted=[...trades].sort((a,b)=>new Date(a.date)-new Date(b.date));
+  const keys=[];
   const m={};
-  trades.forEach(t=>{
+  sorted.forEach(t=>{
     const k=new Date(t.date+'T00:00:00').toLocaleDateString('en-US',{month:'short',year:'2-digit'});
-    m[k]=(m[k]||0)+t.net_pl;
+    if(!m[k]){m[k]=0;keys.push(k);}
+    m[k]+=t.net_pl;
   });
   let cum=0;
-  return Object.entries(m).map(([month,pl])=>{cum+=pl;return{m:month,pl:+pl.toFixed(2),cumPL:+cum.toFixed(2)};});
+  return keys.map(month=>{const pl=m[month];cum+=pl;return{m:month,pl:+pl.toFixed(2),cumPL:+cum.toFixed(2)};});
 }
 
 function buildDow(trades) {
@@ -877,16 +884,26 @@ function buildStreaks(trades) {
   let bW=0,bL=0,cW=0,cL=0;
   const allW=[],allL=[];
   s.forEach(t=>{
-    if(t.net_pl>0){cW++;if(cL>0){allL.push(cL);cL=0;}if(cW>bW)bW=cW;}
-    else if(t.net_pl<0){cL++;if(cW>0){allW.push(cW);cW=0;}if(cL>bL)bL=cL;}
+    if(t.net_pl>0){
+      // Win: close loss streak if open
+      cW++;if(cL>0){allL.push(cL);cL=0;}if(cW>bW)bW=cW;
+    } else {
+      // Loss OR breakeven: both break a win streak and count as non-win
+      if(cW>0){allW.push(cW);cW=0;}
+      if(t.net_pl<0){cL++;if(cL>bL)bL=cL;}
+      else{if(cL>0){allL.push(cL);cL=0;}} // breakeven resets loss streak too
+    }
   });
   if(cW>0)allW.push(cW);if(cL>0)allL.push(cL);
   const avgWin=allW.length?allW.reduce((a,b)=>a+b,0)/allW.length:0;
   const avgLoss=allL.length?allL.reduce((a,b)=>a+b,0)/allL.length:0;
+  // Current streak: walk backward from last trade
   let current=0;
   for(let i=s.length-1;i>=0;i--){
-    const isW=s[i].net_pl>0;
-    if(i===s.length-1){current=isW?1:-1;}
+    const t=s[i];
+    if(t.net_pl===0){break;} // breakeven breaks any streak
+    const isW=t.net_pl>0;
+    if(i===s.length-1||s[i+1].net_pl===0){current=isW?1:-1;}
     else{const cont=(current>0&&isW)||(current<0&&!isW);if(cont)current=current>0?current+1:current-1;else break;}
   }
   return{bestWin:bW,worstLoss:bL,avgWin,avgLoss,current};
@@ -944,7 +961,9 @@ function enrichModels(models) {
     const pl=(m.total_pl||0);
     const wr=(wins/total)*100;
     const pf=gL>0?gW/gL:gW>0?9999:0;
-    const aW=wins>0?gW/wins:0,aL=(total-wins)>0?gL/(total-wins):0;
+    // Use losing_trades if provided by DB, else (total-wins) as fallback
+    const lossCount=m.losing_trades!=null?m.losing_trades:(total-wins);
+    const aW=wins>0?gW/wins:0,aL=lossCount>0?gL/lossCount:0;
     const exp=(wr/100)*aW-((100-wr)/100)*aL;
     return{...m,winRate:wr,profitFactor:pf,avgR:m.avg_r!=null?parseFloat(m.avg_r):null,expectancy:+exp.toFixed(2),totalPL:+pl};
   });
@@ -953,12 +972,20 @@ function enrichModels(models) {
 function buildScore(S) {
   if(!S||S.n===0) return[{m:'Win Rate',s:0},{m:'Profit Factor',s:0},{m:'Expectancy',s:0},{m:'Sharpe',s:0},{m:'Consistency',s:0},{m:'Payoff',s:0}];
   const norm=(v,min,max)=>Math.min(Math.max(((v-min)/(max-min))*100,0),100);
+  // Consistency: coefficient of variation inverse, but ONLY rewards if edge is positive.
+  // If avgPL <= 0, consistency score is 0 — consistent losing is not a skill.
+  const avgPL=S.pl/S.n;
+  const consistency=avgPL>0&&S.std>0
+    ? Math.max(1-S.std/avgPL,0)*100  // lower CV = more consistent profitable edge
+    : avgPL>0&&S.std===0
+      ? 100                           // zero volatility, positive avg = perfect
+      : 0;                            // losing or breakeven avg = 0 consistency score
   return[
     {m:'Win Rate',      s:+norm(S.wr,20,85).toFixed(1)},
     {m:'Profit Factor', s:+norm(S.pf,0.5,3).toFixed(1)},
     {m:'Expectancy',    s:+norm(S.exp,-300,500).toFixed(1)},
     {m:'Sharpe',        s:+norm(S.sharpe,-2,3).toFixed(1)},
-    {m:'Consistency',   s:+norm(S.std>0?Math.max(1-S.std/(Math.abs(S.pl/S.n)||1),0)*100:50,0,100).toFixed(1)},
+    {m:'Consistency',   s:+norm(consistency,0,100).toFixed(1)},
     {m:'Payoff',        s:+norm(S.avgLoss>0?S.avgWin/S.avgLoss:1,0.5,4).toFixed(1)},
   ];
 }
