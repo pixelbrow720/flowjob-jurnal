@@ -26,9 +26,6 @@ function createWindow() {
     frame: false
   });
 
-  // FIX: Properly detect dev mode.
-  // - npm start (dev)  → load from React dev server at localhost:3000
-  // - npm run dist     → load from built index.html
   const isDev = !app.isPackaged || process.env.NODE_ENV === 'development';
   const devUrl = process.env.ELECTRON_START_URL || 'http://localhost:3000';
   const prodUrl = `file://${path.join(__dirname, '../../build/index.html')}`;
@@ -36,7 +33,6 @@ function createWindow() {
   const startUrl = isDev ? devUrl : prodUrl;
   mainWindow.loadURL(startUrl);
 
-  // Auto open DevTools in dev
   if (isDev) {
     mainWindow.webContents.openDevTools();
   }
@@ -146,6 +142,18 @@ ipcMain.handle('delete-trade', async (event, id) => {
   return db.deleteTrade(id);
 });
 
+// ─── Analytics & Performance ──────────────────────────────────────────────────
+// BUG FIX: These two handlers were MISSING — causing Dashboard and Sidebar
+// to always show "No trading data" even when trades exist in the database.
+
+ipcMain.handle('get-analytics', async (event, filters) => {
+  return db.getAnalytics(filters || {});
+});
+
+ipcMain.handle('get-model-performance', async (event, filters) => {
+  return db.getModelPerformance(filters || {});
+});
+
 // ─── Screenshot Handling ──────────────────────────────────────────────────────
 
 ipcMain.handle('select-file', async () => {
@@ -246,6 +254,14 @@ ipcMain.handle('save-daily-journal', async (event, journal) => {
 
 ipcMain.handle('delete-daily-journal', async (event, date) => {
   return db.deleteDailyJournal(date);
+});
+
+ipcMain.handle('get-trading-rules', async (event, accountId) => {
+  return db.getTradingRules(accountId);
+});
+
+ipcMain.handle('save-trading-rules', async (event, accountId, rules) => {
+  return db.saveTradingRules(accountId, rules);
 });
 
 // ─── Model Export / Import ────────────────────────────────────────────────────
@@ -353,4 +369,4 @@ ipcMain.handle('export-pdf-custom', async (event, startDate, endDate) => {
     }
   }
   return { success: false, canceled: true };
-}); 
+});

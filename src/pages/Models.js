@@ -81,19 +81,19 @@ function Models() {
     if (model) {
       setEditingModel(model);
       setFormData({
-        name:            model.name,
-        marketType:      model.market_type,
-        timeframes:      model.timeframes || [],
-        session:         model.session || 'RTH',
-        entryLogic:      model.entry_logic || '',
-        narrative:       model.narrative || '',
-        idealCondition:  model.ideal_condition || '',
-        invalidCondition:model.invalid_condition || '',
-        riskModel:       model.risk_model || 'Fixed R',
-        screenshotPath:  model.screenshot_path || '',
-        tags:            model.tags || [],
+        name:             model.name,
+        marketType:       model.marketType  || model.market_type  || 'Futures',  
+        timeframes:       model.timeframes  || [],
+        session:          model.session     || 'RTH',
+        entryLogic:       model.entryLogic  || '',                               
+        narrative:        model.narrative   || '',
+        idealCondition:   model.idealCondition   || model.ideal_condition   || '', 
+        invalidCondition: model.invalidCondition || model.invalid_condition || '', 
+        riskModel:        model.riskModel   || model.risk_model   || 'Fixed R',   
+        screenshotPath:   model.screenshotPath   || model.screenshot_path   || '', 
+        tags:             model.tags        || [],
         confluenceChecklist: model.confluenceChecklist || [],
-        playbookSteps:   model.playbookSteps || [],
+        playbookSteps:    model.playbookSteps    || [],
       });
     } else {
       setEditingModel(null);
@@ -212,7 +212,9 @@ function Models() {
 
               {/* Sections */}
               {previewModel.narrative && <PreviewSection title="Narrative" text={previewModel.narrative} />}
-              {previewModel.entry_logic && <PreviewSection title="Entry Logic" text={previewModel.entry_logic} />}
+              {previewModel.entryLogic && (
+                <PreviewSection title="Entry Logic" text={previewModel.entryLogic} />
+              )}
               {previewModel.ideal_condition && <PreviewSection title="Ideal Condition" text={previewModel.ideal_condition} />}
               {previewModel.invalid_condition && <PreviewSection title="Invalid Condition" text={previewModel.invalid_condition} />}
 

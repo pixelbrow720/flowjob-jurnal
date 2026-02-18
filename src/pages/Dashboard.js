@@ -34,29 +34,45 @@ const PnLTooltip = ({ active, payload, label }) => {
 };
 
 function Dashboard() {
-  const [stats, setStats]             = useState(null);
+  const [stats, setStats]               = useState(null);
   const [recentTrades, setRecentTrades] = useState([]);
   const [equityCurve, setEquityCurve]   = useState([]);
   const [modelPerf, setModelPerf]       = useState([]);
   const [accounts, setAccounts]         = useState([]);
+  const [selectedAccId, setSelectedAccId] = useState(''); // '' = all accounts
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => { loadData(); }, [selectedAccId]);
 
   const loadData = async () => {
     try {
-      const [analyticsData, trades, mp, accs] = await Promise.all([
-        ipcRenderer.invoke('get-analytics', {}),
-        ipcRenderer.invoke('get-trades', {}),
-        ipcRenderer.invoke('get-model-performance', {}),
-        ipcRenderer.invoke('get-accounts'),
+      const accs = await ipcRenderer.invoke('get-accounts');
+      setAccounts(accs || []);
+
+      const filters = {};
+      if (selectedAccId) filters.accountId = parseInt(selectedAccId);
+
+      const [analyticsData, trades, mp] = await Promise.all([
+        ipcRenderer.invoke('get-analytics', filters),
+        ipcRenderer.invoke('get-trades', filters),
+        ipcRenderer.invoke('get-model-performance', filters),
       ]);
 
       setStats(analyticsData);
       setRecentTrades((trades || []).slice(0, 6));
       setModelPerf(mp || []);
-      setAccounts(accs || []);
 
-      let cum = 0;
+      // FIX: Equity curve starts from initial_balance, not $0
+      const selectedAcc = selectedAccId
+        ? (accs || []).find(a => a.id === parseInt(selectedAccId))
+        : null;
+
+      // Starting balance: if single account selected use its initial_balance,
+      // otherwise sum all accounts' initial_balances
+      const startingBalance = selectedAcc
+        ? (selectedAcc.initial_balance || 25000)
+        : (accs || []).reduce((sum, a) => sum + (a.initial_balance || 25000), 0);
+
+      let cum = startingBalance; // ← Start from initial_balance, not 0
       const curve = [...(trades || [])]
         .sort((a, b) => new Date(a.date) - new Date(b.date))
         .map(t => {
@@ -66,11 +82,19 @@ function Dashboard() {
             equity: parseFloat(cum.toFixed(2))
           };
         });
+
+      // Prepend starting point if there are trades
+      if (curve.length > 0) {
+        curve.unshift({ date: 'Start', equity: startingBalance });
+      }
+
       setEquityCurve(curve);
     } catch (err) {
       console.error('Dashboard load error:', err);
     }
   };
+
+  const selectedAcc = accounts.find(a => a.id === parseInt(selectedAccId));
 
   if (!stats) {
     return (
@@ -96,6 +120,42 @@ function Dashboard() {
       <div className="page-header">
         <h1 className="page-title">Dashboard</h1>
         <p className="page-subtitle">Your trading performance at a glance</p>
+
+        {/* Account Filter Dropdown — NEW */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 12 }}>
+          <span style={{ fontSize: 13, color: 'var(--text-muted)', fontWeight: 600 }}>Viewing:</span>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button
+              onClick={() => setSelectedAccId('')}
+              style={{
+                padding: '6px 16px', borderRadius: 8, fontFamily: 'var(--font-display)',
+                fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                background: selectedAccId === '' ? '#8670ff' : 'var(--bg-tertiary)',
+                border: `1px solid ${selectedAccId === '' ? '#8670ff' : 'var(--border-color)'}`,
+                color: selectedAccId === '' ? '#000' : 'var(--text-secondary)',
+                transition: 'all 0.15s',
+              }}
+            >
+              All Accounts
+            </button>
+            {accounts.map(acc => (
+              <button
+                key={acc.id}
+                onClick={() => setSelectedAccId(String(acc.id))}
+                style={{
+                  padding: '6px 16px', borderRadius: 8, fontFamily: 'var(--font-display)',
+                  fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                  background: selectedAccId === String(acc.id) ? '#8670ff' : 'var(--bg-tertiary)',
+                  border: `1px solid ${selectedAccId === String(acc.id) ? '#8670ff' : 'var(--border-color)'}`,
+                  color: selectedAccId === String(acc.id) ? '#000' : 'var(--text-secondary)',
+                  transition: 'all 0.15s',
+                }}
+              >
+                {acc.name}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       {/* Stats Grid */}
@@ -103,54 +163,53 @@ function Dashboard() {
         {[
           { label: 'Total Trades',  value: stats.totalTrades,               color: 'var(--text-primary)' },
           { label: 'Win Rate',      value: `${stats.winRate.toFixed(1)}%`,   color: stats.winRate >= 50 ? PROFIT : LOSS },
-          { label: 'Total P/L',     value: `${stats.totalPL >= 0 ? '+' : ''}$${stats.totalPL.toFixed(2)}`, color: stats.totalPL >= 0 ? PROFIT : LOSS },
-          { label: 'Profit Factor', value: stats.profitFactor.toFixed(2),    color: stats.profitFactor >= 1.5 ? PROFIT : LOSS },
-          { label: 'Avg R',         value: `${stats.avgRMultiple.toFixed(2)}R`, color: stats.avgRMultiple >= 0 ? PROFIT : LOSS },
-          { label: 'Sharpe Ratio',  value: stats.sharpeRatio.toFixed(2),     color: 'var(--text-primary)' },
-          { label: 'Max Drawdown',  value: `-$${stats.maxDrawdown.toFixed(2)}`, color: LOSS },
-          { label: 'Expectancy',    value: `$${stats.expectancy.toFixed(2)}`, color: stats.expectancy >= 0 ? PROFIT : LOSS },
-        ].map((s, i) => (
-          <div key={i} className="stat-card">
-            <div className="stat-label">{s.label}</div>
-            <div className="stat-value" style={{ color: s.color, fontSize: 26 }}>{s.value}</div>
+          { label: 'Net P/L',       value: `${stats.totalPL >= 0 ? '+' : ''}$${stats.totalPL.toFixed(2)}`, color: stats.totalPL >= 0 ? PROFIT : LOSS },
+          { label: 'Expectancy',    value: `${stats.expectancy >= 0 ? '+' : ''}$${stats.expectancy.toFixed(2)}`, color: stats.expectancy >= 0 ? PROFIT : LOSS },
+        ].map(({ label, value, color }) => (
+          <div key={label} className="stat-card">
+            <div className="stat-label">{label}</div>
+            <div className="stat-value" style={{ color }}>{value}</div>
           </div>
         ))}
       </div>
 
-      {/* Accounts Row */}
+      {/* Account Balances */}
       {accounts.length > 0 && (
-        <div className="content-grid" style={{
-          gridTemplateColumns: `repeat(${Math.min(accounts.length, 4)}, 1fr)`,
-          marginBottom: 28
-        }}>
-          {accounts.map(acc => (
-            <div key={acc.id} style={{
-              background: 'linear-gradient(135deg, rgba(134,112,255,0.08), rgba(255,0,149,0.04))',
-              border: '1px solid rgba(134,112,255,0.2)',
-              borderRadius: 12, padding: '16px 20px',
-            }}>
-              <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase',
-                letterSpacing: '0.5px', marginBottom: 6 }}>
-                {acc.name} · {acc.type}
-              </div>
-              <div style={{ fontSize: 22, fontWeight: 800,
-                fontFamily: 'JetBrains Mono,monospace',
-                color: (acc.current_balance || acc.starting_balance || 0) >= (acc.starting_balance || 0) ? PROFIT : LOSS }}>
-                ${(acc.current_balance || acc.starting_balance || 0).toFixed(2)}
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
-                Start: ${(acc.starting_balance || 0).toFixed(2)}
-              </div>
-            </div>
-          ))}
+        <div className="chart-container" style={{ marginBottom: 28 }}>
+          <div className="chart-title">Account Balances</div>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            {(selectedAcc ? [selectedAcc] : accounts).map(acc => {
+              const pnl = acc.current_balance - acc.initial_balance;
+              return (
+                <div key={acc.id} style={{
+                  flex: '1 1 160px',
+                  background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)',
+                  borderRadius: 10, padding: '14px 18px',
+                }}>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>{acc.name}</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, fontFamily: 'var(--font-mono)', color: pnl >= 0 ? PROFIT : LOSS }}>
+                    ${(acc.current_balance || acc.initial_balance || 0).toFixed(2)}
+                  </div>
+                  <div style={{ fontSize: 12, color: pnl >= 0 ? PROFIT : LOSS, marginTop: 4 }}>
+                    {pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} from ${acc.initial_balance?.toLocaleString() || 25000}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
       {/* Charts */}
       <div className="content-grid grid-2" style={{ marginBottom: 28 }}>
-        {/* Equity Curve */}
+        {/* Equity Curve — starts from initial_balance */}
         <div className="chart-container">
-          <div className="chart-title">Equity Curve</div>
+          <div className="chart-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>Equity Curve</span>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+              Start: ${(selectedAcc?.initial_balance || accounts.reduce((s,a) => s+(a.initial_balance||25000),0)).toLocaleString()}
+            </span>
+          </div>
           <ResponsiveContainer width="100%" height={260}>
             <AreaChart data={equityCurve} margin={{ top: 4, right: 4, left: 4, bottom: 0 }}>
               <defs>
@@ -195,60 +254,35 @@ function Dashboard() {
       <div className="chart-container">
         <div className="chart-title">Recent Trades</div>
         {recentTrades.length === 0 ? (
-          <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>No trades yet.</p>
+          <p style={{ color: 'var(--text-muted)', fontSize: 14, padding: '12px 0' }}>No trades yet.</p>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {recentTrades.map(trade => (
-              <div key={trade.id} style={{
-                display: 'grid',
-                gridTemplateColumns: '40px 1fr auto',
-                gap: 16, alignItems: 'center',
-                background: trade.rule_violation
-                  ? 'rgba(255,0,149,0.07)'
-                  : 'var(--bg-tertiary)',
-                border: `1px solid ${trade.rule_violation
-                  ? 'rgba(255,0,149,0.25)'
-                  : trade.net_pl >= 0
-                    ? 'rgba(134,112,255,0.15)'
-                    : 'rgba(255,0,149,0.15)'}`,
-                borderRadius: 10, padding: '12px 16px',
-                transition: 'all 0.15s',
-              }}>
-                <div style={{
-                  width: 38, height: 38, borderRadius: 8,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontWeight: 800, fontSize: 13,
-                  background: trade.direction === 'Long'
-                    ? 'rgba(134,112,255,0.15)' : 'rgba(255,0,149,0.12)',
-                  color: trade.direction === 'Long' ? PROFIT : LOSS,
-                  border: `1px solid ${trade.direction === 'Long'
-                    ? 'rgba(134,112,255,0.3)' : 'rgba(255,0,149,0.3)'}`,
-                }}>
-                  {trade.direction === 'Long' ? '↑' : '↓'}
-                </div>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: 14 }}>{trade.pair}</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                    {new Date(trade.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                    {' · '}{trade.model_name || 'No Model'}
-                    {trade.rule_violation ? <span style={{ color: LOSS, marginLeft: 8, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="delete" size={11} color="loss" /> Rule Violation</span> : ''}
-                  </div>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{
-                    fontSize: 18, fontWeight: 800,
-                    fontFamily: 'JetBrains Mono,monospace',
-                    color: trade.net_pl >= 0 ? PROFIT : LOSS,
-                  }}>
-                    {trade.net_pl >= 0 ? '+' : ''}${trade.net_pl.toFixed(2)}
-                  </div>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)',
-                    fontFamily: 'JetBrains Mono,monospace' }}>
-                    {trade.r_multiple != null ? `${trade.r_multiple.toFixed(2)}R` : '—'}
-                  </div>
-                </div>
-              </div>
-            ))}
+          <div className="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th><th>Account</th><th>Model</th><th>Pair</th>
+                  <th>Dir</th><th>R</th><th>P/L</th><th>Grade</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentTrades.map(trade => (
+                  <tr key={trade.id}>
+                    <td>{new Date(trade.date + 'T00:00:00').toLocaleDateString()}</td>
+                    <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>{trade.account_name || '—'}</td>
+                    <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>{trade.model_name || '—'}</td>
+                    <td className="mono" style={{ fontWeight: 600 }}>{trade.pair}</td>
+                    <td><span className={`badge badge-${trade.direction === 'Long' ? 'success' : 'danger'}`}>{trade.direction}</span></td>
+                    <td className="mono" style={{ color: (trade.r_multiple || 0) >= 0 ? PROFIT : LOSS }}>
+                      {trade.r_multiple != null ? `${trade.r_multiple > 0 ? '+' : ''}${trade.r_multiple.toFixed(2)}R` : '—'}
+                    </td>
+                    <td className="mono" style={{ color: trade.net_pl >= 0 ? PROFIT : LOSS, fontWeight: 700 }}>
+                      {trade.net_pl >= 0 ? '+' : ''}${trade.net_pl.toFixed(2)}
+                    </td>
+                    <td><span className="badge badge-neutral">{trade.trade_grade || '—'}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>

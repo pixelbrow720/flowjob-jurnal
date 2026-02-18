@@ -148,6 +148,7 @@ class DatabaseManager {
     addColIfMissing('position_size',      'INTEGER DEFAULT 1');
     addColIfMissing('screenshot_before',  'TEXT');
     addColIfMissing('screenshot_after',   'TEXT');
+    addColIfMissing('entry_time', "TEXT DEFAULT NULL");
 
     // Sync sl_points from stop_loss if sl_points is empty (migration of old data)
     try {
@@ -220,13 +221,18 @@ class DatabaseManager {
         tags, confluence_checklist, playbook_steps)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    
+
+    // FIX: store entryLogic as plain string, not JSON.stringify(object)
+    const entryLogicStr = typeof model.entryLogic === 'object' && model.entryLogic !== null
+      ? (model.entryLogic.dailyNarrative || '')
+      : (model.entryLogic || '');
+
     const result = stmt.run(
       model.name,
       model.marketType,
       JSON.stringify(model.timeframes || []),
       model.session,
-      JSON.stringify(model.entryLogic || {}),
+      entryLogicStr,                             // ← plain string, bukan JSON.stringify
       model.narrative,
       model.idealCondition,
       model.invalidCondition,
@@ -236,7 +242,7 @@ class DatabaseManager {
       JSON.stringify(model.confluenceChecklist || []),
       JSON.stringify(model.playbookSteps || [])
     );
-    
+
     return result.lastInsertRowid;
   }
 
@@ -253,22 +259,33 @@ class DatabaseManager {
   _parseModel(m) {
     let timeframes = [];
     try { timeframes = JSON.parse(m.timeframes || m.timeframe || '[]'); } catch(e) {
-      if (m.timeframe) timeframes = [{type: 'Timeframe', value: m.timeframe}];
+      if (m.timeframe) timeframes = [{ type: 'Timeframe', value: m.timeframe }];
     }
     if (!Array.isArray(timeframes)) timeframes = [];
 
-    let entryLogic = {};
+    // FIX: always return entryLogic as plain string.
+    // Handles legacy data stored as {"dailyNarrative":"..."} and new plain string.
+    let entryLogic = '';
     try {
-      const parsed = JSON.parse(m.entry_logic || '{}');
-      entryLogic = typeof parsed === 'object' ? parsed : { dailyNarrative: m.entry_logic || '' };
-    } catch(e) {
-      entryLogic = { dailyNarrative: m.entry_logic || '', keyLevel: '', trigger: '', images: [] };
+      const raw = m.entry_logic || '';
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (typeof parsed === 'object' && parsed !== null) {
+          // Legacy format: extract text from object
+          entryLogic = parsed.dailyNarrative || parsed.keyLevel || '';
+        } else {
+          entryLogic = String(parsed);
+        }
+      }
+    } catch (e) {
+      // Not JSON — it's already a plain string (new format)
+      entryLogic = m.entry_logic || '';
     }
 
     return {
       ...m,
       timeframes,
-      entryLogic,
+      entryLogic,                                // ← always a plain string now
       tags: this._parseJSON(m.tags, []),
       confluenceChecklist: this._parseJSON(m.confluence_checklist, []),
       playbookSteps: this._parseJSON(m.playbook_steps, [])
@@ -288,13 +305,18 @@ class DatabaseManager {
         updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `);
-    
+
+    // FIX: store entryLogic as plain string, not JSON.stringify(object)
+    const entryLogicStr = typeof model.entryLogic === 'object' && model.entryLogic !== null
+      ? (model.entryLogic.dailyNarrative || '')
+      : (model.entryLogic || '');
+
     return stmt.run(
       model.name,
       model.marketType,
       JSON.stringify(model.timeframes || []),
       model.session,
-      JSON.stringify(model.entryLogic || {}),
+      entryLogicStr,                             // ← plain string, bukan JSON.stringify
       model.narrative,
       model.idealCondition,
       model.invalidCondition,
@@ -638,6 +660,37 @@ class DatabaseManager {
 
   deleteDailyJournal(date) {
     return this.db.prepare('DELETE FROM daily_journals WHERE date = ?').run(date);
+  }
+
+  getTradingRules(accountId) {
+    const key = `trading_rules_${accountId}`;
+    const row = this.db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
+    if (!row) return this._defaultTradingRules();
+    try {
+      return { ...this._defaultTradingRules(), ...JSON.parse(row.value) };
+    } catch (e) {
+      return this._defaultTradingRules();
+    }
+  }
+
+  saveTradingRules(accountId, rules) {
+    const key = `trading_rules_${accountId}`;
+    this.db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)')
+      .run(key, JSON.stringify(rules));
+    return true;
+  }
+
+  _defaultTradingRules() {
+    return {
+      tradingDays:    ['Mon','Tue','Wed','Thu','Fri'],
+      hoursEnabled:   true,
+      hoursFrom:      '09:00',
+      hoursTo:        '16:00',
+      maxTradesPerDay: 0,      // 0 = unlimited
+      maxLossPerTrade: 0,      // 0 = disabled
+      maxLossPerDay:   0,      // 0 = disabled
+      manualRules:    [],
+    };
   }
 
   exportToJSON() {

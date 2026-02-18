@@ -119,6 +119,7 @@ export default function Analytics() {
   const [models,   setModels]   = useState([]);
   const [filters,  setFilters]  = useState({ accountId:'', startDate:'', endDate:'' });
   const [loading,  setLoading]  = useState(true);
+  
 
   useEffect(() => { load(); }, [filters]); // eslint-disable-line
 
@@ -158,6 +159,7 @@ export default function Analytics() {
   const mperf     = useMemo(() => enrichModels(models),     [models]);
   const scoreData = useMemo(() => buildScore(S),            [S]);
   const sorted    = useMemo(() => [...trades].sort((a,b) => new Date(a.date)-new Date(b.date)), [trades]);
+  const dayHourData = useMemo(() => buildDayHourHeatmap(trades), [trades]);
   const selAcc    = accounts.find(a => a.id === parseInt(filters.accountId));
 
   if (!loading && !trades.length) return (
@@ -1001,6 +1003,229 @@ function buildScore(S) {
     {m:'Consistency',   s:+norm(consistency,0,100).toFixed(1)},
     {m:'Payoff',        s:+norm(S.avgLoss>0?S.avgWin/S.avgLoss:1,0.5,4).toFixed(1)},
   ];
+}
+
+function buildDayHourHeatmap(trades) {
+  const DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  // Hours 00–23
+  const HOURS = Array.from({ length: 24 }, (_, i) => i);
+
+  // Initialize grid: dayHour[day][hour] = { pl: 0, count: 0 }
+  const grid = {};
+  DAYS.forEach(d => {
+    grid[d] = {};
+    HOURS.forEach(h => { grid[d][h] = { pl: 0, count: 0 }; });
+  });
+
+  const dayMap = { 0: 'Sun', 1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat' };
+
+  trades.forEach(t => {
+    if (!t.entry_time) return;
+    const d = new Date(t.date + 'T00:00:00');
+    const day = dayMap[d.getDay()];
+    const hour = parseInt(t.entry_time.split(':')[0]);
+    if (!isNaN(hour) && grid[day]) {
+      grid[day][hour].pl    += t.net_pl;
+      grid[day][hour].count += 1;
+    }
+  });
+
+  // Find min/max for colour scaling
+  let minPL = 0, maxPL = 0;
+  DAYS.forEach(d => HOURS.forEach(h => {
+    const v = grid[d][h].pl;
+    if (v < minPL) minPL = v;
+    if (v > maxPL) maxPL = v;
+  }));
+
+  // Find best and worst cells
+  let bestCell = null, worstCell = null;
+  DAYS.forEach(d => HOURS.forEach(h => {
+    const cell = grid[d][h];
+    if (cell.count === 0) return;
+    if (!bestCell || cell.pl > bestCell.pl)  bestCell  = { day: d, hour: h, ...cell };
+    if (!worstCell || cell.pl < worstCell.pl) worstCell = { day: d, hour: h, ...cell };
+  }));
+
+  return { grid, DAYS, HOURS, minPL, maxPL, bestCell, worstCell };
+}
+
+function DayHourHeatmap({ data }) {
+  const PROFIT = '#8670ff';
+  const LOSS   = '#ff0095';
+  const { grid, DAYS, HOURS, minPL, maxPL, bestCell, worstCell } = data;
+
+  const [tooltip, setTooltip] = useState(null);
+
+  // Filter hours to only show ones that have at least 1 trade (save space)
+  const activeHours = HOURS.filter(h => DAYS.some(d => grid[d][h].count > 0));
+
+  function cellColor(pl, count) {
+    if (count === 0) return 'rgba(255,255,255,0.03)';
+    if (pl > 0) {
+      const intensity = maxPL > 0 ? Math.min(pl / maxPL, 1) : 0;
+      const alpha = 0.15 + intensity * 0.75;
+      return `rgba(134,112,255,${alpha.toFixed(2)})`;   // purple accent = profit
+    } else {
+      const intensity = minPL < 0 ? Math.min(Math.abs(pl) / Math.abs(minPL), 1) : 0;
+      const alpha = 0.15 + intensity * 0.75;
+      return `rgba(255,0,149,${alpha.toFixed(2)})`;     // pink accent = loss
+    }
+  }
+
+  const tradesWithTime = DAYS.reduce((sum, d) => 
+    sum + HOURS.reduce((s, h) => s + grid[d][h].count, 0), 0);
+
+  return (
+    <div style={{
+      background: 'var(--bg-elevated)', border: '1px solid var(--border-color)',
+      borderRadius: 14, padding: 24,
+    }}>
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Weekday × Hour Heatmap</div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+            P&L by day of week and entry hour — only trades with Entry Time are shown
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ width: 10, height: 10, borderRadius: 3, background: PROFIT }} />
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Profit</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ width: 10, height: 10, borderRadius: 3, background: LOSS }} />
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Loss</span>
+          </div>
+        </div>
+      </div>
+
+      {tradesWithTime === 0 ? (
+        <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-muted)', fontSize: 14 }}>
+          No trades with Entry Time logged yet. Add Entry Time when journaling to see this heatmap.
+        </div>
+      ) : (
+        <>
+          {/* Grid */}
+          <div style={{ overflowX: 'auto' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: `56px repeat(${activeHours.length}, 1fr)`, gap: 3, minWidth: 500 }}>
+              {/* Header row: hours */}
+              <div />
+              {activeHours.map(h => (
+                <div key={h} style={{
+                  textAlign: 'center', fontSize: 11, color: 'var(--text-muted)',
+                  fontFamily: 'var(--font-mono)', paddingBottom: 6, fontWeight: 600,
+                }}>
+                  {String(h).padStart(2,'0')}
+                </div>
+              ))}
+
+              {/* Data rows: each day */}
+              {DAYS.map(day => (
+                <React.Fragment key={day}>
+                  {/* Y-axis label */}
+                  <div style={{
+                    display: 'flex', alignItems: 'center',
+                    fontSize: 12, fontWeight: 700, color: 'var(--text-muted)',
+                    paddingRight: 8, paddingLeft: 4,
+                  }}>
+                    {day}
+                  </div>
+
+                  {/* Hour cells */}
+                  {activeHours.map(h => {
+                    const cell = grid[day][h];
+                    const bg = cellColor(cell.pl, cell.count);
+                    const isBest  = bestCell?.day === day && bestCell?.hour === h;
+                    const isWorst = worstCell?.day === day && worstCell?.hour === h;
+                    return (
+                      <div
+                        key={h}
+                        onMouseEnter={e => setTooltip({ day, hour: h, cell, x: e.clientX, y: e.clientY })}
+                        onMouseLeave={() => setTooltip(null)}
+                        style={{
+                          height: 36, borderRadius: 6, background: bg,
+                          border: isBest  ? `1.5px solid ${PROFIT}` :
+                                  isWorst ? `1.5px solid ${LOSS}` :
+                                  '1px solid rgba(255,255,255,0.04)',
+                          cursor: cell.count > 0 ? 'pointer' : 'default',
+                          transition: 'opacity 0.15s',
+                          position: 'relative',
+                        }}
+                      />
+                    );
+                  })}
+                </React.Fragment>
+              ))}
+            </div>
+          </div>
+
+          {/* Tooltip */}
+          {tooltip && tooltip.cell.count > 0 && (
+            <div style={{
+              position: 'fixed', left: tooltip.x + 12, top: tooltip.y - 10,
+              background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.12)',
+              borderRadius: 10, padding: '10px 14px', zIndex: 9999, pointerEvents: 'none',
+              boxShadow: '0 8px 32px rgba(0,0,0,0.6)', minWidth: 140,
+            }}>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>
+                {tooltip.day} @ {String(tooltip.hour).padStart(2,'0')}:00
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 2 }}>
+                Trades: <strong style={{ color: 'var(--text-primary)' }}>{tooltip.cell.count}</strong>
+              </div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: tooltip.cell.pl >= 0 ? PROFIT : LOSS }}>
+                {tooltip.cell.pl >= 0 ? '+' : ''}${tooltip.cell.pl.toFixed(2)}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                Avg: {tooltip.cell.count > 0 ? `${(tooltip.cell.pl / tooltip.cell.count >= 0 ? '+' : '')}$${(tooltip.cell.pl / tooltip.cell.count).toFixed(2)}` : '—'}
+              </div>
+            </div>
+          )}
+
+          {/* Stats row */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginTop: 20 }}>
+            {[
+              {
+                label: 'BEST TIMING',
+                value: bestCell ? `${bestCell.day} @ ${String(bestCell.hour).padStart(2,'0')}:00` : '—',
+                sub:   bestCell ? `+$${bestCell.pl.toFixed(2)}` : '',
+                color: PROFIT,
+              },
+              {
+                label: 'TOUGHEST PATCH',
+                value: worstCell ? `${worstCell.day} @ ${String(worstCell.hour).padStart(2,'0')}:00` : '—',
+                sub:   worstCell ? `-$${Math.abs(worstCell.pl).toFixed(2)}` : '',
+                color: LOSS,
+              },
+              {
+                label: 'TRADES ANALYSED',
+                value: String(tradesWithTime),
+                sub:   'with entry time',
+                color: 'var(--text-primary)',
+              },
+            ].map(({ label, value, sub, color }) => (
+              <div key={label} style={{
+                background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)',
+                borderRadius: 10, padding: '14px 18px',
+              }}>
+                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.6px', color: 'var(--text-muted)', marginBottom: 6 }}>
+                  {label}
+                </div>
+                <div style={{ fontSize: 18, fontWeight: 800, fontFamily: 'var(--font-mono)', color }}>
+                  {value}
+                </div>
+                {sub && (
+                  <div style={{ fontSize: 12, color, marginTop: 2, opacity: 0.8 }}>{sub}</div>
+                )}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
 }
 
 function fmtD(date) {

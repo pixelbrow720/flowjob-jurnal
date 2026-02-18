@@ -72,6 +72,7 @@ function calcRMultiple(slPoints, tpPoints, outcome) {
 
 const defaultForm = () => ({
   date: new Date().toISOString().split('T')[0],
+  entryTime: new Date().toTimeString().slice(0,5),
   accountId: '',
   modelId: '',
   pair: 'ES',
@@ -107,6 +108,55 @@ function Journal() {
   const [zoomImage, setZoomImage]         = useState(null);
 
   useEffect(() => { loadData(); }, [filters]);
+
+  useEffect(() => {
+    if (!formData.accountId || !showModal) return;
+    autoCheckViolations();
+  }, [formData.accountId, formData.entryTime, formData.date, showModal]);
+
+  const autoCheckViolations = async () => {
+    try {
+      const accId = parseInt(formData.accountId);
+      if (!accId) return;
+
+      const rules = await ipcRenderer.invoke('get-trading-rules', accId);
+      if (!rules) return;
+
+      const tradingDayMap = { 0: 'Sun', 1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat' };
+      const tradeDate = new Date(formData.date + 'T00:00:00');
+      const dayName = tradingDayMap[tradeDate.getDay()];
+
+      let violated = false;
+
+      // Check trading day
+      if (rules.tradingDays && !rules.tradingDays.includes(dayName)) {
+        violated = true;
+      }
+
+      // Check trading hours
+      if (!violated && rules.hoursEnabled && formData.entryTime) {
+        const t = formData.entryTime;
+        if (t < rules.hoursFrom || t > rules.hoursTo) violated = true;
+      }
+
+      // Check max trades per day (exclude currently editing trade)
+      if (!violated && rules.maxTradesPerDay > 0) {
+        const dayTrades = trades.filter(t =>
+          t.date === formData.date &&
+          t.account_id === accId &&
+          (!editingTrade || t.id !== editingTrade.id)
+        );
+        if (dayTrades.length >= rules.maxTradesPerDay) violated = true;
+      }
+
+      // Only auto-set if violated (don't clear manual overrides)
+      if (violated) {
+        setFormData(prev => ({ ...prev, ruleViolation: true }));
+      }
+    } catch (e) {
+      // Silent fail
+    }
+  };
 
   const loadData = async () => {
     const [modelsList, accountsList] = await Promise.all([
@@ -158,6 +208,7 @@ function Journal() {
 
     const tradeData = {
       date:             formData.date,
+      entryTime:        formData.entryTime || null,
       accountId:        formData.accountId  ? parseInt(formData.accountId)  : null,
       modelId:          formData.modelId    ? parseInt(formData.modelId)    : null,
       pair:             formData.pair,
@@ -208,6 +259,7 @@ function Journal() {
       setEditingTrade(trade);
       const fd = {
         date:               trade.date,
+        entryTime:          trade.entry_time || '',
         accountId:          trade.account_id || '',
         modelId:            trade.model_id || '',
         pair:               trade.pair,
@@ -309,6 +361,7 @@ function Journal() {
             <thead>
               <tr>
                 <th>Date</th>
+                <th>Time</th>
                 <th>Account</th>
                 <th>Model</th>
                 <th>Instrument</th>
@@ -330,6 +383,9 @@ function Journal() {
                   boxShadow: 'inset 0 0 0 1px rgba(255,0,149,0.2)',
                 } : {}}>
                   <td>{new Date(trade.date + 'T00:00:00').toLocaleDateString()}</td>
+                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)' }}>
+                    {trade.entry_time || '—'}
+                  </td>
                   <td style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
                     {trade.account_name || '—'}
                   </td>
@@ -387,11 +443,20 @@ function Journal() {
             </div>
 
             <div className="modal-body">
-              {/* Row 1: Date, Account, Model */}
-              <div className="form-row-3">
+            {/* Row 1: Date, Time, Account, Model */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 16, marginBottom: 16 }}>
                 <div className="form-group">
                   <label>Date *</label>
                   <input type="date" value={formData.date} onChange={e => updateForm({ date: e.target.value })} required />
+                </div>
+                <div className="form-group">
+                  <label>Entry Time</label>
+                  <input
+                    type="time"
+                    value={formData.entryTime}
+                    onChange={e => updateForm({ entryTime: e.target.value })}
+                    style={{ fontFamily: 'var(--font-mono)' }}
+                  />
                 </div>
                 <div className="form-group">
                   <label>Trading Account</label>
@@ -408,6 +473,19 @@ function Journal() {
                   </select>
                 </div>
               </div>
+
+              {/* Auto-violation warning banner */}
+              {formData.ruleViolation && (
+                <div style={{
+                  padding: '10px 16px', borderRadius: 8, marginBottom: 16,
+                  background: 'rgba(255,0,149,0.08)', border: '1px solid rgba(255,0,149,0.3)',
+                  fontSize: 13, color: '#ff0095', fontWeight: 600,
+                  display: 'flex', alignItems: 'center', gap: 8,
+                }}>
+                  <span style={{ fontSize: 16 }}>⚠</span>
+                  Rule violation detected — outside allowed hours or trade limit reached for this account.
+                </div>
+              )}
 
               {/* Row 2: Instrument, Direction */}
               <div className="form-row">

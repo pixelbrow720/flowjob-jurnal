@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Icon from '../components/Icon';
 
 const { ipcRenderer } = window.require('electron');
@@ -12,6 +12,8 @@ function DailyJournal() {
   const [entry, setEntry] = useState(null);
   const [editMode, setEditMode] = useState(false);
   const [activeTab, setActiveTab] = useState('pre');
+  const [saving, setSaving] = useState(false);   // FIX: save feedback state
+  const [saveMsg, setSaveMsg] = useState('');     // FIX: success/error message
 
   useEffect(() => {
     loadEntries();
@@ -57,10 +59,25 @@ function DailyJournal() {
     }
   };
 
+  // FIX 1: saveEntry now calls loadEntry after save so entry.id is populated
+  //         and Edit/Delete buttons become visible. Also adds error handling
+  //         and save feedback so user knows save worked.
   const saveEntry = async () => {
-    await ipcRenderer.invoke('save-daily-journal', entry);
-    loadEntries();
-    setEditMode(false);
+    if (!entry) return;
+    setSaving(true);
+    setSaveMsg('');
+    try {
+      await ipcRenderer.invoke('save-daily-journal', entry);
+      await loadEntries();
+      // FIX: reload the entry from DB so entry.id is set → Edit/Delete buttons appear
+      await loadEntry(selectedDate);
+      setSaveMsg('Saved!');
+      setTimeout(() => setSaveMsg(''), 2000);
+    } catch (err) {
+      setSaveMsg('Save failed: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const deleteEntry = async () => {
@@ -71,9 +88,13 @@ function DailyJournal() {
     }
   };
 
-  const updateField = (field, value) => {
-    setEntry({ ...entry, [field]: value });
-  };
+  // FIX 2: updateField uses functional state updater to avoid stale closure.
+  //         Previously `setEntry({ ...entry, [field]: value })` would capture
+  //         the old `entry` from the closure, causing fields to overwrite each
+  //         other when updated in quick succession.
+  const updateField = useCallback((field, value) => {
+    setEntry(prev => ({ ...prev, [field]: value }));
+  }, []);
 
   const handleImageUpload = async (field) => {
     const filePath = await ipcRenderer.invoke('select-file');
@@ -174,14 +195,14 @@ function DailyJournal() {
                   }}
                   onMouseEnter={(ev) => {
                     if (selectedDate !== e.date) {
-                      ev.target.style.background = 'var(--bg-tertiary)';
-                      ev.target.style.color = 'var(--text-primary)';
+                      ev.currentTarget.style.background = 'var(--bg-tertiary)';
+                      ev.currentTarget.style.color = 'var(--text-primary)';
                     }
                   }}
                   onMouseLeave={(ev) => {
                     if (selectedDate !== e.date) {
-                      ev.target.style.background = 'transparent';
-                      ev.target.style.color = 'var(--text-secondary)';
+                      ev.currentTarget.style.background = 'transparent';
+                      ev.currentTarget.style.color = 'var(--text-secondary)';
                     }
                   }}
                 >
@@ -217,7 +238,20 @@ function DailyJournal() {
                     {entry?.id ? `Entry ID: ${entry.id}` : 'New entry'}
                   </p>
                 </div>
-                <div style={{ display: 'flex', gap: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  {/* FIX: Save feedback message */}
+                  {saveMsg && (
+                    <span style={{
+                      fontSize: 13, fontWeight: 600,
+                      color: saveMsg.startsWith('Save failed') ? LOSS : PROFIT,
+                      padding: '6px 14px',
+                      background: saveMsg.startsWith('Save failed') ? 'rgba(255,0,149,0.1)' : 'rgba(134,112,255,0.1)',
+                      borderRadius: 8,
+                      border: `1px solid ${saveMsg.startsWith('Save failed') ? 'rgba(255,0,149,0.3)' : 'rgba(134,112,255,0.3)'}`,
+                    }}>
+                      {saveMsg}
+                    </span>
+                  )}
                   {entry?.id && !editMode && (
                     <>
                       <button className="btn btn-secondary" onClick={() => setEditMode(true)}>
@@ -236,8 +270,14 @@ function DailyJournal() {
                       }}>
                         Cancel
                       </button>
-                      <button className="btn btn-primary" onClick={saveEntry}>
-                        <Icon name="save" size={13} style={{ marginRight: 6 }} /> Save Entry
+                      <button
+                        className="btn btn-primary"
+                        onClick={saveEntry}
+                        disabled={saving}
+                        style={{ opacity: saving ? 0.6 : 1 }}
+                      >
+                        <Icon name="save" size={13} style={{ marginRight: 6 }} />
+                        {saving ? 'Saving...' : 'Save Entry'}
                       </button>
                     </>
                   )}
@@ -325,21 +365,21 @@ function DailyJournal() {
                       />
                       <FieldCard
                         label="Lessons Learned"
-                        placeholder="Key takeaways from today that will make you a better trader"
+                        placeholder="Key takeaway from today. What rule do you need to add or reinforce?"
                         value={entry.lessons_learned}
                         onChange={(v) => updateField('lessons_learned', v)}
                         disabled={!editMode}
                         rows={3}
                       />
                       <FieldCard
-                        label="Emotional State"
-                        placeholder="How do you feel after today's session?"
+                        label="Emotional State (Post)"
+                        placeholder="How do you feel after the session? Content, frustrated, confident?"
                         value={entry.emotional_state_post}
                         onChange={(v) => updateField('emotional_state_post', v)}
                         disabled={!editMode}
                       />
                       <ImageUploadCard
-                        label="Results Screenshot"
+                        label="Post-Session Screenshot"
                         imagePath={entry.post_session_image}
                         onUpload={() => handleImageUpload('post_session_image')}
                         onRemove={() => updateField('post_session_image', null)}
@@ -348,14 +388,17 @@ function DailyJournal() {
 
                       {/* Discipline Score */}
                       <div style={{
-                        background: 'linear-gradient(135deg, rgba(134,112,255,0.06), rgba(255,0,149,0.03))',
-                        border: '1px solid rgba(134,112,255,0.2)',
-                        borderRadius: 12,
-                        padding: 20,
+                        background: 'var(--bg-tertiary)',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: 10,
+                        padding: 18,
                       }}>
-                        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <label style={{
+                          display: 'flex', alignItems: 'center', gap: 8,
+                          fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 16,
+                        }}>
                           Discipline Score
-                        </div>
+                        </label>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
                           <input
                             type="range"
@@ -365,21 +408,15 @@ function DailyJournal() {
                             onChange={(e) => updateField('discipline_score', parseInt(e.target.value))}
                             disabled={!editMode}
                             style={{
-                              flex: 1,
-                              height: 8,
-                              borderRadius: 4,
-                              appearance: 'none',
+                              flex: 1, height: 6, borderRadius: 3, outline: 'none',
+                              appearance: 'none', cursor: editMode ? 'pointer' : 'default',
                               background: `linear-gradient(to right, ${entry.discipline_score >= 7 ? PROFIT : entry.discipline_score >= 4 ? WARN : LOSS} 0%, ${entry.discipline_score >= 7 ? PROFIT : entry.discipline_score >= 4 ? WARN : LOSS} ${entry.discipline_score * 10}%, var(--bg-elevated) ${entry.discipline_score * 10}%, var(--bg-elevated) 100%)`,
                             }}
                           />
                           <div style={{
-                            fontSize: 36,
-                            fontWeight: 900,
-                            fontFamily: 'var(--font-mono)',
+                            fontSize: 36, fontWeight: 900, fontFamily: 'var(--font-mono)',
                             color: entry.discipline_score >= 7 ? PROFIT : entry.discipline_score >= 4 ? WARN : LOSS,
-                            minWidth: 65,
-                            textAlign: 'center',
-                            lineHeight: 1,
+                            minWidth: 65, textAlign: 'center', lineHeight: 1,
                           }}>
                             {entry.discipline_score}
                           </div>
@@ -418,28 +455,24 @@ function Tab({ label, active, onClick, color }) {
     <button
       onClick={onClick}
       style={{
-        flex: 1,
-        padding: '14px 20px',
+        flex: 1, padding: '14px 20px',
         background: active ? 'var(--bg-secondary)' : 'transparent',
         border: 'none',
         borderBottom: active ? `2px solid ${color}` : '2px solid transparent',
         color: active ? 'var(--text-primary)' : 'var(--text-muted)',
-        fontFamily: 'var(--font-display)',
-        fontSize: 14,
-        fontWeight: active ? 700 : 500,
-        cursor: 'pointer',
-        transition: 'all 0.2s',
+        fontFamily: 'var(--font-display)', fontSize: 14,
+        fontWeight: active ? 700 : 500, cursor: 'pointer', transition: 'all 0.2s',
       }}
       onMouseEnter={(e) => {
         if (!active) {
-          e.target.style.background = 'var(--bg-tertiary)';
-          e.target.style.color = 'var(--text-primary)';
+          e.currentTarget.style.background = 'var(--bg-tertiary)';
+          e.currentTarget.style.color = 'var(--text-primary)';
         }
       }}
       onMouseLeave={(e) => {
         if (!active) {
-          e.target.style.background = 'transparent';
-          e.target.style.color = 'var(--text-muted)';
+          e.currentTarget.style.background = 'transparent';
+          e.currentTarget.style.color = 'var(--text-muted)';
         }
       }}
     >
@@ -454,19 +487,12 @@ function FieldCard({ label, placeholder, value, onChange, disabled, rows = 2 }) 
 
   return (
     <div style={{
-      background: 'var(--bg-tertiary)',
-      border: '1px solid var(--border-color)',
-      borderRadius: 10,
-      padding: 18,
+      background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)',
+      borderRadius: 10, padding: 18,
     }}>
       <label style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 8,
-        fontSize: 13,
-        fontWeight: 700,
-        color: 'var(--text-primary)',
-        marginBottom: 10,
+        display: 'flex', alignItems: 'center', gap: 8,
+        fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 10,
       }}>
         {label}
       </label>
@@ -477,16 +503,13 @@ function FieldCard({ label, placeholder, value, onChange, disabled, rows = 2 }) 
         disabled={disabled}
         rows={isTextarea ? rows : undefined}
         style={{
-          width: '100%',
-          fontSize: 14,
-          padding: '12px 14px',
+          width: '100%', fontSize: 14, padding: '12px 14px',
           background: disabled ? 'rgba(0,0,0,0.2)' : 'var(--bg-secondary)',
           border: `1px solid ${disabled ? 'transparent' : 'var(--border-color)'}`,
-          borderRadius: 8,
-          color: 'var(--text-primary)',
-          fontFamily: 'var(--font-display)',
-          lineHeight: 1.6,
+          borderRadius: 8, color: 'var(--text-primary)',
+          fontFamily: 'var(--font-display)', lineHeight: 1.6,
           resize: isTextarea ? 'vertical' : undefined,
+          boxSizing: 'border-box',
         }}
       />
     </div>
@@ -496,19 +519,12 @@ function FieldCard({ label, placeholder, value, onChange, disabled, rows = 2 }) 
 function ImageUploadCard({ label, imagePath, onUpload, onRemove, disabled }) {
   return (
     <div style={{
-      background: 'var(--bg-tertiary)',
-      border: '1px solid var(--border-color)',
-      borderRadius: 10,
-      padding: 18,
+      background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)',
+      borderRadius: 10, padding: 18,
     }}>
       <label style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 8,
-        fontSize: 13,
-        fontWeight: 700,
-        color: 'var(--text-primary)',
-        marginBottom: 12,
+        display: 'flex', alignItems: 'center', gap: 8,
+        fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 12,
       }}>
         <Icon name="preview" size={14} /> {label}
       </label>
@@ -519,30 +535,18 @@ function ImageUploadCard({ label, imagePath, onUpload, onRemove, disabled }) {
             src={`file://${imagePath}`}
             alt="uploaded"
             style={{
-              width: '100%',
-              maxHeight: 300,
-              objectFit: 'contain',
-              borderRadius: 8,
-              border: '1px solid var(--border-color)',
-              background: '#000',
+              width: '100%', maxHeight: 300, objectFit: 'contain',
+              borderRadius: 8, border: '1px solid var(--border-color)', background: '#000',
             }}
           />
           {!disabled && (
             <button
               onClick={onRemove}
               style={{
-                position: 'absolute',
-                top: 10,
-                right: 10,
-                background: 'rgba(255,0,149,0.9)',
-                border: 'none',
-                borderRadius: 6,
-                padding: '6px 12px',
-                color: '#fff',
-                fontSize: 12,
-                fontWeight: 700,
-                cursor: 'pointer',
-                fontFamily: 'var(--font-display)',
+                position: 'absolute', top: 10, right: 10,
+                background: 'rgba(255,0,149,0.9)', border: 'none', borderRadius: 6,
+                padding: '6px 12px', color: '#fff', fontSize: 12, fontWeight: 700,
+                cursor: 'pointer', fontFamily: 'var(--font-display)',
               }}
             >
               Remove
@@ -554,27 +558,22 @@ function ImageUploadCard({ label, imagePath, onUpload, onRemove, disabled }) {
           <button
             onClick={onUpload}
             style={{
-              width: '100%',
-              padding: '40px 20px',
+              width: '100%', padding: '40px 20px',
               background: 'rgba(134,112,255,0.05)',
               border: '2px dashed rgba(134,112,255,0.3)',
-              borderRadius: 8,
-              color: 'var(--text-secondary)',
-              fontSize: 14,
-              fontWeight: 600,
-              cursor: 'pointer',
-              fontFamily: 'var(--font-display)',
-              transition: 'all 0.2s',
+              borderRadius: 8, color: 'var(--text-secondary)',
+              fontSize: 14, fontWeight: 600, cursor: 'pointer',
+              fontFamily: 'var(--font-display)', transition: 'all 0.2s',
             }}
             onMouseEnter={(e) => {
-              e.target.style.background = 'rgba(134,112,255,0.1)';
-              e.target.style.borderColor = 'rgba(134,112,255,0.5)';
-              e.target.style.color = '#8670ff';
+              e.currentTarget.style.background = 'rgba(134,112,255,0.1)';
+              e.currentTarget.style.borderColor = 'rgba(134,112,255,0.5)';
+              e.currentTarget.style.color = '#8670ff';
             }}
             onMouseLeave={(e) => {
-              e.target.style.background = 'rgba(134,112,255,0.05)';
-              e.target.style.borderColor = 'rgba(134,112,255,0.3)';
-              e.target.style.color = 'var(--text-secondary)';
+              e.currentTarget.style.background = 'rgba(134,112,255,0.05)';
+              e.currentTarget.style.borderColor = 'rgba(134,112,255,0.3)';
+              e.currentTarget.style.color = 'var(--text-secondary)';
             }}
           >
             Click to upload image
