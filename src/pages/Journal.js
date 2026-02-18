@@ -70,9 +70,12 @@ function calcRMultiple(slPoints, tpPoints, outcome) {
   return -1;
 }
 
-const defaultForm = () => ({
-  date: new Date().toISOString().split('T')[0],
-  entryTime: new Date().toTimeString().slice(0,5),
+const defaultForm = () => {
+  const _d = new Date();
+  const localDate = `${_d.getFullYear()}-${String(_d.getMonth()+1).padStart(2,'0')}-${String(_d.getDate()).padStart(2,'0')}`;
+  return {
+  date: localDate,
+  entryTime: _d.toTimeString().slice(0,5),
   accountId: '',
   modelId: '',
   pair: 'ES',
@@ -93,7 +96,8 @@ const defaultForm = () => ({
   tradeGrade: 'B',
   screenshotBefore: '',
   screenshotAfter: '',
-});
+  };
+};
 
 function Journal() {
   const [trades, setTrades]           = useState([]);

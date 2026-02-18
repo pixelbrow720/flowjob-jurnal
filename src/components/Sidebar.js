@@ -13,7 +13,7 @@ const navItems = [
   { path: '/daily-journal', label: 'Daily Journal', icon: `${PUB}/pencil.png` },
   { path: '/analytics', label: 'Analytics',      icon: `${PUB}/a.png` },
   { path: '/calendar',  label: 'Calendar P&L',   icon: `${PUB}/calendar.png` },
-  { path: '/risk',      label: 'Risk Dashboard', icon: `${PUB}/balance.png` },
+  { path: '/risk',      label: 'Trading Rules',  icon: `${PUB}/balance.png` },
 ];
 
 function Sidebar() {

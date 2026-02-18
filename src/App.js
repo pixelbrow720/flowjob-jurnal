@@ -8,7 +8,7 @@ import Journal from './pages/Journal';
 import Analytics from './pages/Analytics';
 import Accounts from './pages/Accounts';
 import CalendarPnL from './pages/CalendarPnL';
-import RiskDashboard from './pages/RiskDashboard';
+import TradingRules from './pages/TradingRules';
 import DailyJournal from './pages/DailyJournal';
 import ErrorBoundary from './components/ErrorBoundary';
 import './App.css';
@@ -30,7 +30,7 @@ function App() {
                 <Route path="/daily-journal" element={<DailyJournal />} />
                 <Route path="/analytics" element={<Analytics />} />
                 <Route path="/calendar" element={<CalendarPnL />} />
-                <Route path="/risk" element={<RiskDashboard />} />
+                <Route path="/risk" element={<TradingRules />} />
               </Routes>
             </ErrorBoundary>
           </main>

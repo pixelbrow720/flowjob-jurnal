@@ -82,7 +82,8 @@ export default function TradingRules() {
   };
 
   // ── Live metrics ──────────────────────────────────────────────────────────
-  const today = new Date().toISOString().split('T')[0];
+  const _now = new Date();
+  const today = `${_now.getFullYear()}-${String(_now.getMonth()+1).padStart(2,'0')}-${String(_now.getDate()).padStart(2,'0')}`;
   const todayTrades = trades.filter(t => t.date === today);
   const todayPL = todayTrades.reduce((s, t) => s + t.net_pl, 0);
   const capital = selected?.initial_balance || 25000;
@@ -102,7 +103,7 @@ export default function TradingRules() {
   const activeRules = rules || defaultRules();
 
   // ── Rule status checks ────────────────────────────────────────────────────
-  const now = new Date();
+  const now = _now;
   const currentDay = DAYS[now.getDay() === 0 ? 6 : now.getDay() - 1];
   const currentTime = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
   const isDayAllowed = activeRules.tradingDays.includes(currentDay);

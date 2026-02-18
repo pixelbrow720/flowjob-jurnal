@@ -144,7 +144,11 @@ export default function Analytics() {
 
   /* computed */
   const S         = useMemo(() => calcStats(trades),        [trades]);
-  const equity    = useMemo(() => buildEquity(trades),      [trades]);
+  const selAccObj = accounts.find(a => a.id === parseInt(filters.accountId));
+  const startBal  = selAccObj
+    ? (selAccObj.initial_balance || 25000)
+    : accounts.reduce((s, a) => s + (a.initial_balance || 25000), 0);
+  const equity    = useMemo(() => buildEquity(trades, startBal), [trades, startBal]);
   const dd        = useMemo(() => buildDrawdown(trades),    [trades]);
   const monthly   = useMemo(() => buildMonthly(trades),     [trades]);
   const dow       = useMemo(() => buildDow(trades),         [trades]);
@@ -615,6 +619,11 @@ export default function Analytics() {
         <AChart title="Daily P/L Heatmap — Last 90 Days" dot={C.blue} h="auto">
           <HeatmapGrid data={heatmap} />
         </AChart>
+
+        {/* ══ NEW: Day × Hour Heatmap ══ */}
+        <div className="a-section" style={{ marginTop: 24 }}>
+          <DayHourHeatmap data={dayHourData} />
+        </div>
       </div>
     </div>
   );
@@ -791,9 +800,9 @@ function calcStats(trades) {
   };
 }
 
-function buildEquity(trades) {
-  let c=0;
-  return [...trades].sort((a,b)=>new Date(a.date)-new Date(b.date)).map((t,i)=>{c+=t.net_pl;return{l:fmtD(t.date),eq:+c.toFixed(2)};});
+function buildEquity(trades, startingBalance = 0) {
+  let c = startingBalance;
+  return [...trades].sort((a,b)=>new Date(a.date)-new Date(b.date)).map(t=>{c+=t.net_pl;return{l:fmtD(t.date),eq:+c.toFixed(2)};});
 }
 
 function buildDrawdown(trades) {
