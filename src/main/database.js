@@ -163,6 +163,26 @@ class DatabaseManager {
       try { this.db.exec("ALTER TABLE models ADD COLUMN timeframes TEXT"); } catch(e) {}
     }
 
+    // ── Migrate daily_journals table ──────────────────────────────────────────
+    // Columns added after initial release — safe to add if missing
+    const djColumns = this.db.prepare("PRAGMA table_info(daily_journals)").all().map(c => c.name);
+    const addDJColIfMissing = (col, definition) => {
+      if (!djColumns.includes(col)) {
+        try { this.db.exec(`ALTER TABLE daily_journals ADD COLUMN ${col} ${definition}`); } catch(e) {}
+      }
+    };
+    addDJColIfMissing('pre_market_image',     'TEXT');
+    addDJColIfMissing('post_session_image',   'TEXT');
+    addDJColIfMissing('emotional_state_pre',  'TEXT');
+    addDJColIfMissing('emotional_state_post', 'TEXT');
+    addDJColIfMissing('planned_setups',       'TEXT');
+    addDJColIfMissing('risk_plan',            'TEXT');
+    addDJColIfMissing('execution_notes',      'TEXT');
+    addDJColIfMissing('what_worked',          'TEXT');
+    addDJColIfMissing('what_didnt_work',      'TEXT');
+    addDJColIfMissing('lessons_learned',      'TEXT');
+    addDJColIfMissing('discipline_score',     'INTEGER DEFAULT 5');
+
     console.log('Database initialized successfully');
   }
 

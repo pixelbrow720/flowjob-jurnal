@@ -144,11 +144,7 @@ export default function Analytics() {
 
   /* computed */
   const S         = useMemo(() => calcStats(trades),        [trades]);
-  const selAccObj = accounts.find(a => a.id === parseInt(filters.accountId));
-  const startBal  = selAccObj
-    ? (selAccObj.initial_balance || 25000)
-    : accounts.reduce((s, a) => s + (a.initial_balance || 25000), 0);
-  const equity    = useMemo(() => buildEquity(trades, startBal), [trades, startBal]);
+  const equity    = useMemo(() => buildEquity(trades),      [trades]);
   const dd        = useMemo(() => buildDrawdown(trades),    [trades]);
   const monthly   = useMemo(() => buildMonthly(trades),     [trades]);
   const dow       = useMemo(() => buildDow(trades),         [trades]);
@@ -165,6 +161,7 @@ export default function Analytics() {
   const sorted    = useMemo(() => [...trades].sort((a,b) => new Date(a.date)-new Date(b.date)), [trades]);
   const dayHourData = useMemo(() => buildDayHourHeatmap(trades), [trades]);
   const selAcc    = accounts.find(a => a.id === parseInt(filters.accountId));
+  const violations = useMemo(() => buildViolations(trades), [trades]);
 
   if (!loading && !trades.length) return (
     <div className="fade-in analytics-wrap">
@@ -619,11 +616,171 @@ export default function Analytics() {
         <AChart title="Daily P/L Heatmap — Last 90 Days" dot={C.blue} h="auto">
           <HeatmapGrid data={heatmap} />
         </AChart>
+      </div>
 
-        {/* ══ NEW: Day × Hour Heatmap ══ */}
-        <div className="a-section" style={{ marginTop: 24 }}>
-          <DayHourHeatmap data={dayHourData} />
+      {/* ══ 13. RULE VIOLATION TRACKER ══ */}
+      <div className="a-section">
+        <ASection
+          title="Rule Violation Tracker"
+          sub="Trades where you broke your own rules — the real cost of indiscipline"
+        />
+
+        {/* Top KPI row */}
+        <div className="a-stat-grid a-stat-grid-4" style={{ marginBottom: 20 }}>
+          <AStat
+            label="Violation Rate"
+            value={violations.totalCount > 0 ? fmtPct(violations.violationPct) : '—'}
+            col={violations.violationPct > 30 ? 'col-loss' : violations.violationPct > 10 ? 'col-warn' : 'col-profit'}
+            desc={`${violations.vCount} of ${violations.totalCount} trades`}
+          />
+          <AStat
+            label="Avg P/L — Clean"
+            value={violations.avgClean != null ? fmtMoney(violations.avgClean) : '—'}
+            col={violations.avgClean >= 0 ? 'col-profit' : 'col-loss'}
+            desc="No violation"
+          />
+          <AStat
+            label="Avg P/L — Violated"
+            value={violations.avgViol != null ? fmtMoney(violations.avgViol) : '—'}
+            col={violations.avgViol >= 0 ? 'col-profit' : 'col-loss'}
+            desc="With violation"
+          />
+          <AStat
+            label="Hidden Cost"
+            value={violations.hiddenCost != null ? fmtMoney(violations.hiddenCost) : '—'}
+            col="col-loss"
+            desc="Total P/L lost to violated trades"
+          />
         </div>
+
+        {violations.vCount === 0 ? (
+          <div style={{
+            textAlign:'center', padding:'40px 20px',
+            background:'rgba(134,112,255,0.04)', borderRadius:14,
+            border:'1px solid rgba(134,112,255,0.12)',
+          }}>
+            <div style={{fontSize:36,marginBottom:8}}>✅</div>
+            <div style={{color:'#8670ff',fontWeight:700,fontSize:15}}>Zero violations logged</div>
+            <div style={{color:'#555f6e',fontSize:12,marginTop:4}}>Keep following your rules. Your edge compounds with your discipline.</div>
+          </div>
+        ) : (
+          <div className="a-grid-2">
+
+            {/* Chart 1: Clean vs Violated Avg P/L comparison */}
+            <AChart title="Clean vs. Violated — Avg P/L" dot={C.loss} h={240}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={[
+                    { label: 'Clean', val: violations.avgClean || 0 },
+                    { label: 'Violated', val: violations.avgViol || 0 },
+                  ]}
+                  margin={MAR}
+                  barCategoryGap="35%"
+                >
+                  <CartesianGrid {...GRID_P} />
+                  <XAxis dataKey="label" tick={TICK} tickLine={false} axisLine={false} />
+                  <YAxis tick={TICK} tickLine={false} axisLine={false} tickFormatter={v=>`${v>=0?'+':''}$${Math.abs(v).toFixed(0)}`} />
+                  <Tooltip content={<Tip fmt={fmtMoney} />} cursor={{fill:'rgba(255,255,255,0.02)'}} />
+                  <ReferenceLine y={0} stroke="#2a2a3a" />
+                  <Bar dataKey="val" radius={[8,8,0,0]} maxBarSize={80}>
+                    <Cell fill={violations.avgClean >= 0 ? C.profit : C.loss} fillOpacity={0.9} />
+                    <Cell fill={C.loss} fillOpacity={0.9} />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </AChart>
+
+            {/* Chart 2: Win Rate comparison */}
+            <AChart title="Clean vs. Violated — Win Rate %" dot={C.warn} h={240}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={[
+                    { label: 'Clean', val: violations.cleanWR || 0 },
+                    { label: 'Violated', val: violations.violWR || 0 },
+                  ]}
+                  margin={MAR}
+                  barCategoryGap="35%"
+                >
+                  <CartesianGrid {...GRID_P} />
+                  <XAxis dataKey="label" tick={TICK} tickLine={false} axisLine={false} />
+                  <YAxis tick={TICK} tickLine={false} axisLine={false} domain={[0,100]} tickFormatter={v=>`${v}%`} />
+                  <Tooltip content={<Tip fmt={v=>`${v.toFixed(1)}%`} color={C.warn} />} cursor={{fill:'rgba(255,255,255,0.02)'}} />
+                  <Bar dataKey="val" radius={[8,8,0,0]} maxBarSize={80}>
+                    <Cell fill={C.profit} fillOpacity={0.9} />
+                    <Cell fill={C.warn} fillOpacity={0.85} />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </AChart>
+
+            {/* Chart 3: Rolling violation frequency */}
+            <AChart title="Violation Frequency — Rolling 10 Trades" dot={C.loss} h={220}>
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={violations.rollingViol} margin={MAR}>
+                  <SvgDefs />
+                  <CartesianGrid {...GRID_P} />
+                  <XAxis dataKey="l" tick={TICK} tickLine={false} axisLine={false} interval="preserveStartEnd" />
+                  <YAxis tick={TICK} tickLine={false} axisLine={false} domain={[0,100]} tickFormatter={v=>`${v}%`} />
+                  <Tooltip content={<Tip fmt={v=>`${v.toFixed(0)}%`} color={C.loss} />} cursor={{fill:'rgba(255,255,255,0.02)'}} />
+                  <Area type="monotone" dataKey="vr" stroke={C.loss} strokeWidth={2} fill="url(#gLoss)" dot={false} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </AChart>
+
+            {/* Chart 4: Mistake tag breakdown */}
+            {violations.mistakeTags.length > 0 && (
+              <AChart title="Mistake Tags on Violated Trades" dot={C.warn} h={220}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={violations.mistakeTags} margin={{...MAR, bottom: 24}} layout="vertical" barCategoryGap="20%">
+                    <CartesianGrid {...GRID_P} />
+                    <XAxis type="number" tick={TICK} tickLine={false} axisLine={false} allowDecimals={false} />
+                    <YAxis dataKey="tag" type="category" tick={{...TICK, fontSize:9}} tickLine={false} axisLine={false} width={90} />
+                    <Tooltip content={<Tip fmt={v=>`${v} trades`} color={C.warn} />} cursor={{fill:'rgba(255,255,255,0.02)'}} />
+                    <Bar dataKey="count" radius={[0,6,6,0]} maxBarSize={22} fill={C.warn} fillOpacity={0.85} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </AChart>
+            )}
+          </div>
+        )}
+
+        {/* Violation log table */}
+        {violations.vCount > 0 && (
+          <div style={{ marginTop: 20 }}>
+            <div style={{ fontSize:11, color:'#555f6e', fontFamily:'JetBrains Mono,monospace', letterSpacing:'0.5px', marginBottom:10, textTransform:'uppercase' }}>
+              Violated Trades Log — {violations.vCount} records
+            </div>
+            <div style={{ maxHeight: 320, overflowY:'auto', borderRadius:12, border:'1px solid rgba(255,0,149,0.12)' }}>
+              <table style={{ width:'100%', borderCollapse:'collapse', fontSize:11, fontFamily:'JetBrains Mono,monospace' }}>
+                <thead>
+                  <tr style={{ background:'rgba(255,0,149,0.08)', position:'sticky', top:0 }}>
+                    {['Date','Pair','Dir','Net P/L','R','Mistake Tag','Grade'].map(h => (
+                      <th key={h} style={{ padding:'8px 12px', textAlign:'left', color:'#555f6e', fontWeight:600, letterSpacing:'0.3px', fontSize:10 }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {violations.violatedTrades.map((t, i) => (
+                    <tr key={i} style={{ borderBottom:'1px solid rgba(255,255,255,0.04)', background: i%2===0?'transparent':'rgba(255,255,255,0.01)' }}>
+                      <td style={{ padding:'7px 12px', color:'#8891a4' }}>{fmtD(t.date)}</td>
+                      <td style={{ padding:'7px 12px', color:'#c0cad8', fontWeight:600 }}>{t.pair || '—'}</td>
+                      <td style={{ padding:'7px 12px', color: t.direction==='long'?C.profit:C.loss, fontWeight:700, textTransform:'uppercase', fontSize:10 }}>{t.direction || '—'}</td>
+                      <td style={{ padding:'7px 12px', color: t.net_pl>=0?C.profit:C.loss, fontWeight:700 }}>{fmtMoney(t.net_pl)}</td>
+                      <td style={{ padding:'7px 12px', color: t.r_multiple>=0?C.profit:C.loss }}>{t.r_multiple!=null?fmtR(t.r_multiple):'—'}</td>
+                      <td style={{ padding:'7px 12px', color:'#ffaa00' }}>{t.mistake_tag || <span style={{color:'#3a3a4a'}}>—</span>}</td>
+                      <td style={{ padding:'7px 12px' }}>
+                        {t.trade_grade
+                          ? <span style={{ background: t.trade_grade==='A+'?'rgba(134,112,255,0.2)':t.trade_grade==='A'?'rgba(0,229,160,0.15)':t.trade_grade==='B'?'rgba(255,170,0,0.15)':'rgba(255,0,149,0.15)', color: t.trade_grade==='A+'?C.profit:t.trade_grade==='A'?C.green:t.trade_grade==='B'?C.warn:C.loss, padding:'2px 8px', borderRadius:6, fontSize:10, fontWeight:700 }}>{t.trade_grade}</span>
+                          : <span style={{color:'#3a3a4a'}}>—</span>
+                        }
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -800,9 +957,9 @@ function calcStats(trades) {
   };
 }
 
-function buildEquity(trades, startingBalance = 0) {
-  let c = startingBalance;
-  return [...trades].sort((a,b)=>new Date(a.date)-new Date(b.date)).map(t=>{c+=t.net_pl;return{l:fmtD(t.date),eq:+c.toFixed(2)};});
+function buildEquity(trades) {
+  let c=0;
+  return [...trades].sort((a,b)=>new Date(a.date)-new Date(b.date)).map((t,i)=>{c+=t.net_pl;return{l:fmtD(t.date),eq:+c.toFixed(2)};});
 }
 
 function buildDrawdown(trades) {
@@ -1235,6 +1392,55 @@ function DayHourHeatmap({ data }) {
       )}
     </div>
   );
+}
+
+function buildViolations(trades) {
+  const sorted = [...trades].sort((a, b) => new Date(a.date) - new Date(b.date));
+  const violated = sorted.filter(t => t.rule_violation);
+  const clean    = sorted.filter(t => !t.rule_violation);
+
+  const avg = arr => arr.length ? arr.reduce((s, t) => s + t.net_pl, 0) / arr.length : null;
+  const wr  = arr => arr.length ? (arr.filter(t => t.net_pl > 0).length / arr.length) * 100 : 0;
+
+  const avgViol  = avg(violated);
+  const avgClean = avg(clean);
+
+  // "Hidden cost" = total P&L of violated trades (negative = money lost to bad discipline)
+  const hiddenCost = violated.reduce((s, t) => s + t.net_pl, 0);
+
+  // Rolling 10-trade violation rate
+  const rollingViol = sorted.map((_, i, arr) => {
+    if (i < 9) return null;
+    const window = arr.slice(i - 9, i + 1);
+    const vr = (window.filter(t => t.rule_violation).length / 10) * 100;
+    return { l: fmtD(arr[i].date), vr: +vr.toFixed(1) };
+  }).filter(Boolean);
+
+  // Mistake tag breakdown (only on violated trades)
+  const tagMap = {};
+  violated.forEach(t => {
+    if (t.mistake_tag) {
+      tagMap[t.mistake_tag] = (tagMap[t.mistake_tag] || 0) + 1;
+    }
+  });
+  const mistakeTags = Object.entries(tagMap)
+    .map(([tag, count]) => ({ tag, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 8);
+
+  return {
+    totalCount:    sorted.length,
+    vCount:        violated.length,
+    violationPct:  sorted.length ? (violated.length / sorted.length) * 100 : 0,
+    avgViol,
+    avgClean,
+    hiddenCost,
+    cleanWR:       wr(clean),
+    violWR:        wr(violated),
+    rollingViol,
+    mistakeTags,
+    violatedTrades: violated.slice().reverse(), // most recent first
+  };
 }
 
 function fmtD(date) {
