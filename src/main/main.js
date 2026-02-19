@@ -143,8 +143,6 @@ ipcMain.handle('delete-trade', async (event, id) => {
 });
 
 // ─── Analytics & Performance ──────────────────────────────────────────────────
-// BUG FIX: These two handlers were MISSING — causing Dashboard and Sidebar
-// to always show "No trading data" even when trades exist in the database.
 
 ipcMain.handle('get-analytics', async (event, filters) => {
   return db.getAnalytics(filters || {});
@@ -201,15 +199,10 @@ ipcMain.handle('export-csv', async () => {
 });
 
 function tradesToCSV(trades) {
-  // BUG FIX 1: Added 'Entry Time' column that was previously missing.
-  // BUG FIX 2: All text fields are now properly escaped to prevent comma
-  //            injection from breaking CSV column alignment.
   const headers = ['Date', 'Entry Time', 'Account', 'Model', 'Pair', 'Direction',
     'Entry Price', 'SL Points', 'TP Points', 'Position Size', 'R Multiple', 'Net P/L',
     'Outcome', 'Grade', 'Emotional State', 'Mistake Tag', 'Rule Violation', 'Notes'];
 
-  // Wrap any value that contains a comma, double-quote, or newline in double
-  // quotes and escape existing double-quotes per the RFC 4180 CSV standard.
   const escapeCSV = val => {
     const str = val == null ? '' : String(val);
     if (str.includes(',') || str.includes('"') || str.includes('\n')) {
@@ -220,9 +213,9 @@ function tradesToCSV(trades) {
 
   const rows = trades.map(t => [
     t.date,
-    t.entry_time || '',          // BUG FIX 1: entry_time now included
-    escapeCSV(t.account_name),   // BUG FIX 2: protected against comma injection
-    escapeCSV(t.model_name),     // BUG FIX 2
+    t.entry_time || '',
+    escapeCSV(t.account_name),
+    escapeCSV(t.model_name),
     escapeCSV(t.pair),
     t.direction,
     t.entry_price,
@@ -231,12 +224,12 @@ function tradesToCSV(trades) {
     t.position_size,
     t.r_multiple || '',
     t.net_pl,
-    escapeCSV(t.outcome),        // BUG FIX 2
-    escapeCSV(t.trade_grade),    // BUG FIX 2
-    escapeCSV(t.emotional_state),// BUG FIX 2
-    escapeCSV(t.mistake_tag),    // BUG FIX 2
+    escapeCSV(t.outcome),
+    escapeCSV(t.trade_grade),
+    escapeCSV(t.emotional_state),
+    escapeCSV(t.mistake_tag),
     t.rule_violation ? 'Yes' : 'No',
-    escapeCSV(t.notes),          // BUG FIX 2: now uses proper RFC 4180 quoting
+    escapeCSV(t.notes),
   ]);
 
   return [headers, ...rows].map(row => row.join(',')).join('\n');
@@ -374,6 +367,21 @@ ipcMain.handle('export-pdf-custom', async (event, startDate, endDate) => {
     defaultPath: `custom-report-${startDate}-to-${endDate}.pdf`
   });
 
+  if (!result.canceled) {
+    try {
+      pdfExporter.generateCustomReport(startDate, endDate, result.filePath);
+      return { success: true, path: result.filePath };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  }
+  return { success: false, canceled: true };
+});
+
+// ─── Education ────────────────────────────────────────────────────────────────
+// BUG FIX: Handlers were previously nested inside export-pdf-custom callback,
+// so they were never registered on app start → "No handler registered" error.
+
 ipcMain.handle('get-education-weeks', async () => {
   return db.getEducationWeeks();
 });
@@ -392,15 +400,4 @@ ipcMain.handle('delete-education-slide', async (event, id) => {
 
 ipcMain.handle('reorder-education-slides', async (event, weekNumber, orderedIds) => {
   return db.reorderEducationSlides(weekNumber, orderedIds);
-});
-
-  if (!result.canceled) {
-    try {
-      pdfExporter.generateCustomReport(startDate, endDate, result.filePath);
-      return { success: true, path: result.filePath };
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
-  }
-  return { success: false, canceled: true };
 });
