@@ -2,7 +2,35 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import './Education.css';
 
 const { ipcRenderer } = window.require('electron');
-const EDIT_PASSWORD = '140700';
+const crypto           = window.require('crypto');
+
+// ─── PASSWORD HASHES (SHA-256) ────────────────────────────────────────────────
+// Password asli TIDAK tersimpan di sini — hanya hash-nya.
+// Untuk mengubah password: jalankan di terminal →
+//   node -e "const c=require('crypto');console.log(c.createHash('sha256').update('PASSWORD_BARU').digest('hex'))"
+// Lalu paste hasilnya di bawah.
+
+const hash = (s) => crypto.createHash('sha256').update(s).digest('hex');
+
+const ACCESS_HASH = '22ddc5f9a7c9ded7ca8379628e8d6c2ac88363e8275e0f90c7ff8425d1d47618'; // FLOWJOB666
+const EDIT_HASH   = '0cb09421cbc491b47f25b8545f11363f3aa1b440c94303597e4359774ce1b3d8'; // 140700
+
+const WEEK_HASHES = {
+  1:  '41c9aa5876dd960a4e3578cb561aeb22ba6654dc4c66f0e5a6e3d4e077a116f3',
+  2:  'afa81aebad49147e354551d3e2ae69abf9dea12afcaab5375e4533b288ae0e5b',
+  3:  '2c4186b6d16b60307dadd9c8004a54397f6c72c7a689d49bf8400e93ca127107',
+  4:  '059aa9664b3ad496df9acb6ac0148b4416ba701a99bb89673a6a76d6fff99556',
+  5:  '3116a57435ef36376d26eff5cd8e32a9f69ae6bd5358085d3d68338fba48964e',
+  6:  '3e3c7c47457c014bce0efad1a7643f5c7c28bdc4e7e448abcbf5996492e6115f',
+  7:  'd7488bea2f44bf4557ad9ee52244b3942d28389cb14aa5d7151580b6c0639035',
+  8:  '2e7f3a5dd59950f43c47e26347fc324c54796b29f2670c274956249a73ba6274',
+  9:  'b1e41ddc609df311a21dd9a27fd4fa22f00261eb745888c362b15e17403792bb',
+  10: '5d4716e22d7e7281602aaebb6ccb753ff05c60d9e1eeafb50a0f991a32ddd439',
+  11: 'c4caf4be588f1edf99d87eb60e1fbd1e183ff69ad712e68fbe82a0251d20291e',
+  12: 'f48ec9018718a3b887afcd4086a543772ff5177f46ecd7a4dc96b0a7169c8aa5',
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 const PHASE_COLORS = {
   'Intensive Learning':      '#8670ff',
@@ -13,23 +41,225 @@ const PHASE_COLORS = {
 
 const SLIDE_TYPE_LABELS = { intro: 'Intro', concept: 'Concept', homework: 'Task' };
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Shake Hook ───────────────────────────────────────────────────────────────
+function useShake() {
+  const [shaking, setShaking] = useState(false);
+  const trigger = () => {
+    setShaking(true);
+    setTimeout(() => setShaking(false), 500);
+  };
+  return [shaking, trigger];
+}
+
+// ─── Entry Gate ───────────────────────────────────────────────────────────────
+function EntryGate({ onUnlock }) {
+  const [input, setInput]     = useState('');
+  const [error, setError]     = useState('');
+  const [shake, triggerShake] = useShake();
+  const inputRef              = useRef(null);
+
+  useEffect(() => { inputRef.current?.focus(); }, []);
+
+  const handleSubmit = () => {
+    if (hash(input) === ACCESS_HASH) {
+      onUnlock();
+    } else {
+      setError('Password salah. Coba lagi.');
+      triggerShake();
+      setInput('');
+    }
+  };
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0,
+      background: 'var(--bg-primary)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      zIndex: 100,
+    }}>
+      <div style={{
+        background: 'var(--bg-secondary)',
+        border: '1px solid var(--border-color)',
+        borderRadius: 20, padding: '48px 40px', width: 420, maxWidth: '90vw',
+        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20,
+        boxShadow: '0 30px 80px rgba(0,0,0,0.6)',
+        animation: 'modalIn 0.22s ease',
+      }}>
+        <div style={{
+          width: 64, height: 64, borderRadius: 18,
+          background: 'rgba(134,112,255,0.12)',
+          border: '1px solid rgba(134,112,255,0.3)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 30,
+        }}>
+          🎓
+        </div>
+
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.3px' }}>
+            Education Center
+          </div>
+          <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 6, lineHeight: 1.6 }}>
+            Area khusus bootcamp. Masukkan access password untuk melanjutkan.
+          </div>
+        </div>
+
+        <div style={{ width: '100%', animation: shake ? 'shakeX 0.4s ease' : 'none' }}>
+          <input
+            ref={inputRef}
+            type="password"
+            value={input}
+            onChange={e => { setInput(e.target.value); setError(''); }}
+            onKeyDown={e => e.key === 'Enter' && handleSubmit()}
+            placeholder="Access password..."
+            style={{
+              width: '100%', boxSizing: 'border-box',
+              background: 'var(--bg-tertiary)',
+              border: `1px solid ${error ? '#ff0095' : 'var(--border-color)'}`,
+              borderRadius: 10, padding: '12px 16px', fontSize: 16,
+              color: 'var(--text-primary)', fontFamily: 'var(--font-display)',
+              outline: 'none', letterSpacing: '0.15em', textAlign: 'center',
+              transition: 'border-color 0.15s',
+            }}
+          />
+          {error && (
+            <div style={{ fontSize: 12, color: '#ff0095', fontWeight: 600, textAlign: 'center', marginTop: 8 }}>
+              {error}
+            </div>
+          )}
+        </div>
+
+        <button className="btn btn-primary" onClick={handleSubmit}
+          style={{ width: '100%', padding: '12px', fontSize: 15, fontWeight: 700 }}>
+          Masuk
+        </button>
+
+        <div style={{ fontSize: 11, color: 'var(--text-muted)', opacity: 0.5 }}>
+          Flowjob Journal — Bootcamp Module
+        </div>
+      </div>
+
+      <style>{`
+        @keyframes shakeX {
+          0%,100% { transform: translateX(0); }
+          20%      { transform: translateX(-8px); }
+          40%      { transform: translateX(8px); }
+          60%      { transform: translateX(-6px); }
+          80%      { transform: translateX(6px); }
+        }
+        @keyframes modalIn {
+          from { opacity:0; transform:scale(0.94) translateY(-10px); }
+          to   { opacity:1; transform:scale(1) translateY(0); }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// ─── Week Unlock Modal ────────────────────────────────────────────────────────
+function WeekUnlockModal({ weekNumber, weekTitle, phaseColor, onUnlock, onClose }) {
+  const [input, setInput]     = useState('');
+  const [error, setError]     = useState('');
+  const [shake, triggerShake] = useShake();
+  const inputRef              = useRef(null);
+
+  useEffect(() => { inputRef.current?.focus(); }, []);
+
+  const handleSubmit = () => {
+    if (hash(input) === WEEK_HASHES[weekNumber]) {
+      onUnlock(weekNumber);
+    } else {
+      setError('Password week salah. Minta ke mentor kamu!');
+      triggerShake();
+      setInput('');
+    }
+  };
+
+  return (
+    <div className="edu-modal-overlay" onClick={onClose}>
+      <div className="edu-modal" onClick={e => e.stopPropagation()}
+        style={{ animation: 'modalIn 0.18s ease', alignItems: 'center' }}>
+
+        <div style={{
+          width: 52, height: 52, borderRadius: 14,
+          background: `${phaseColor}18`,
+          border: `1px solid ${phaseColor}44`,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24,
+        }}>
+          🔒
+        </div>
+
+        <div style={{ textAlign: 'center' }}>
+          <div className="edu-modal-title" style={{ textAlign: 'center' }}>
+            Week {weekNumber} Terkunci
+          </div>
+          <div className="edu-modal-sub" style={{ textAlign: 'center' }}>
+            <strong style={{ color: phaseColor }}>{weekTitle}</strong>
+            <br />
+            Masukkan password week ini dari mentor kamu.
+          </div>
+        </div>
+
+        <div style={{ width: '100%', animation: shake ? 'shakeX 0.4s ease' : 'none' }}>
+          <input
+            ref={inputRef}
+            type="password"
+            value={input}
+            className="edu-modal-input"
+            style={{
+              width: '100%', boxSizing: 'border-box',
+              borderColor: error ? '#ff0095' : undefined,
+              textAlign: 'center', letterSpacing: '0.15em',
+            }}
+            onChange={e => { setInput(e.target.value); setError(''); }}
+            onKeyDown={e => e.key === 'Enter' && handleSubmit()}
+            placeholder="Password week..."
+          />
+          {error && (
+            <div className="edu-modal-error" style={{ textAlign: 'center', marginTop: 6 }}>
+              {error}
+            </div>
+          )}
+        </div>
+
+        <div className="edu-modal-actions">
+          <button className="btn btn-secondary" onClick={onClose}>Batal</button>
+          <button className="btn btn-primary" onClick={handleSubmit}
+            style={{ background: phaseColor, border: 'none' }}>
+            Unlock Week {weekNumber}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Export ──────────────────────────────────────────────────────────────
 export default function Education() {
+  const [unlocked, setUnlocked] = useState(false);
+  if (!unlocked) return <EntryGate onUnlock={() => setUnlocked(true)} />;
+  return <EducationContent />;
+}
+
+// ─── Education Content ────────────────────────────────────────────────────────
+function EducationContent() {
   const [weeks, setWeeks]               = useState([]);
-  const [selectedWeek, setSelectedWeek] = useState(1);
+  const [selectedWeek, setSelectedWeek] = useState(null);
   const [slides, setSlides]             = useState([]);
   const [currentSlide, setCurrentSlide] = useState(0);
   const [loading, setLoading]           = useState(true);
 
-  const [isEditMode, setIsEditMode]         = useState(false);
-  const [authModal, setAuthModal]           = useState(false);
-  const [passwordInput, setPasswordInput]   = useState('');
-  const [passwordError, setPasswordError]   = useState('');
+  const [unlockedWeeks, setUnlockedWeeks]     = useState(new Set([1]));
+  const [weekUnlockModal, setWeekUnlockModal] = useState(null);
 
-  const [editingSlide, setEditingSlide]     = useState(null);
-  const [editContent, setEditContent]       = useState({});
-  const [addSlideModal, setAddSlideModal]   = useState(false);
-  const [newSlide, setNewSlide]             = useState({ title: '', body: '', type: 'concept', imagePlaceholder: '' });
+  const [isEditMode, setIsEditMode]       = useState(false);
+  const [authModal, setAuthModal]         = useState(false);
+  const [passwordInput, setPasswordInput] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+
+  const [editingSlide, setEditingSlide]   = useState(null);
+  const [editContent, setEditContent]     = useState({});
+  const [addSlideModal, setAddSlideModal] = useState(false);
+  const [newSlide, setNewSlide]           = useState({ title: '', body: '', type: 'concept', imagePlaceholder: '' });
   const [confirmDeleteModal, setConfirmDeleteModal] = useState(null);
 
   const slideRef = useRef(null);
@@ -37,30 +267,59 @@ export default function Education() {
   // ── Data loading ──────────────────────────────────────────────────────────
 
   const loadWeeks = useCallback(async () => {
-    const data = await ipcRenderer.invoke('get-education-weeks');
-    setWeeks(data || []);
-    setLoading(false);
+    try {
+      const data = await ipcRenderer.invoke('get-education-weeks');
+      const list = data || [];
+      setWeeks(list);
+      if (list.length > 0) setSelectedWeek(list[0].week_number);
+    } catch (err) {
+      console.error('Failed to load education weeks:', err);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   const loadSlides = useCallback(async (weekNum) => {
-    const data = await ipcRenderer.invoke('get-education-slides', weekNum);
-    setSlides(data || []);
-    setCurrentSlide(0);
-    setEditingSlide(null);
+    try {
+      const data = await ipcRenderer.invoke('get-education-slides', weekNum);
+      setSlides(data || []);
+      setCurrentSlide(0);
+      setEditingSlide(null);
+    } catch (err) {
+      console.error('Failed to load slides:', err);
+      setSlides([]);
+    }
   }, []);
 
   useEffect(() => { loadWeeks(); }, [loadWeeks]);
-  useEffect(() => { loadSlides(selectedWeek); }, [selectedWeek, loadSlides]);
+  useEffect(() => { if (selectedWeek) loadSlides(selectedWeek); }, [selectedWeek, loadSlides]);
 
   const currentWeek      = weeks.find(w => w.week_number === selectedWeek);
   const phaseColor       = PHASE_COLORS[currentWeek?.phase] || '#8670ff';
   const currentSlideData = slides[currentSlide];
 
+  // ── Week selection ────────────────────────────────────────────────────────
+
+  const handleSelectWeek = (week) => {
+    if (isEditMode || unlockedWeeks.has(week.week_number)) {
+      setSelectedWeek(week.week_number);
+    } else {
+      const pc = PHASE_COLORS[week.phase] || '#8670ff';
+      setWeekUnlockModal({ weekNumber: week.week_number, weekTitle: week.title, phaseColor: pc });
+    }
+  };
+
+  const handleWeekUnlock = (weekNumber) => {
+    setUnlockedWeeks(prev => new Set([...prev, weekNumber]));
+    setSelectedWeek(weekNumber);
+    setWeekUnlockModal(null);
+  };
+
   const goToSlide = (idx) => {
     if (idx >= 0 && idx < slides.length) setCurrentSlide(idx);
   };
 
-  // ── Auth ──────────────────────────────────────────────────────────────────
+  // ── Edit Mode Auth ────────────────────────────────────────────────────────
 
   const openAuthModal = () => {
     setAuthModal(true);
@@ -69,16 +328,24 @@ export default function Education() {
   };
 
   const confirmAuth = () => {
-    if (passwordInput === EDIT_PASSWORD) {
+    if (hash(passwordInput) === EDIT_HASH) {
       setIsEditMode(true);
       setAuthModal(false);
+      setUnlockedWeeks(new Set(weeks.map(w => w.week_number)));
     } else {
       setPasswordError('Password salah. Coba lagi.');
       setPasswordInput('');
     }
   };
 
-  // ── Add slide ─────────────────────────────────────────────────────────────
+  const exitEditMode = () => {
+    setIsEditMode(false);
+    setEditingSlide(null);
+    setUnlockedWeeks(new Set([1]));
+    setSelectedWeek(weeks[0]?.week_number ?? 1);
+  };
+
+  // ── Slide CRUD ────────────────────────────────────────────────────────────
 
   const addSlide = async () => {
     const slide = {
@@ -97,8 +364,6 @@ export default function Education() {
     setAddSlideModal(false);
     setNewSlide({ title: '', body: '', type: 'concept', imagePlaceholder: '' });
   };
-
-  // ── Edit slide ────────────────────────────────────────────────────────────
 
   const startEdit = (slide) => {
     setEditingSlide(slide.id);
@@ -127,8 +392,6 @@ export default function Education() {
     setEditingSlide(null);
   };
 
-  // ── Delete slide ──────────────────────────────────────────────────────────
-
   const deleteSlide = async (slideId) => {
     const newIndex = Math.max(0, currentSlide - 1);
     await ipcRenderer.invoke('delete-education-slide', slideId);
@@ -136,8 +399,6 @@ export default function Education() {
     setCurrentSlide(newIndex);
     setConfirmDeleteModal(null);
   };
-
-  // ── Image upload ──────────────────────────────────────────────────────────
 
   const handleImageUpload = async (idx) => {
     try {
@@ -188,7 +449,7 @@ export default function Education() {
     });
   };
 
-  // ── Loading state ─────────────────────────────────────────────────────────
+  // ── Loading ───────────────────────────────────────────────────────────────
 
   if (loading) return (
     <div className="edu-wrap fade-in" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 400 }}>
@@ -209,7 +470,7 @@ export default function Education() {
             <p className="page-subtitle">Materi Bootcamp Orderflow — Kurikulum 3 Bulan</p>
           </div>
           {isEditMode ? (
-            <button className="edu-edit-mode-btn edu-edit-mode-btn--active" onClick={() => { setIsEditMode(false); setEditingSlide(null); }}>
+            <button className="edu-edit-mode-btn edu-edit-mode-btn--active" onClick={exitEditMode}>
               <span className="edu-edit-mode-dot" /> Edit Mode Aktif — Klik untuk keluar
             </button>
           ) : (
@@ -226,49 +487,72 @@ export default function Education() {
           {weeks.map(w => {
             const pc         = PHASE_COLORS[w.phase] || '#8670ff';
             const isSelected = w.week_number === selectedWeek;
+            const isLocked   = !isEditMode && !unlockedWeeks.has(w.week_number);
+
             return (
-              <button key={w.week_number}
+              <button
+                key={w.week_number}
                 className={`edu-week-btn ${isSelected ? 'active' : ''}`}
-                onClick={() => setSelectedWeek(w.week_number)}
-                style={{ borderColor: isSelected ? `${pc}44` : undefined, background: isSelected ? `${pc}11` : undefined, color: isSelected ? pc : undefined }}
+                onClick={() => handleSelectWeek(w)}
+                style={{
+                  borderColor: isSelected ? `${pc}44` : undefined,
+                  background:  isSelected ? `${pc}11` : isLocked ? 'rgba(255,255,255,0.02)' : undefined,
+                  color:       isSelected ? pc : isLocked ? 'var(--text-muted)' : undefined,
+                  opacity:     isLocked ? 0.6 : 1,
+                }}
               >
                 <span className="edu-week-num">W{w.week_number}</span>
                 <span className="edu-week-title">{w.title}</span>
+                {!isEditMode && (
+                  <span style={{ marginLeft: 'auto', fontSize: 12, flexShrink: 0 }}>
+                    {isLocked ? '🔒' : '✓'}
+                  </span>
+                )}
               </button>
             );
           })}
+
+          {!isEditMode && (
+            <div style={{
+              marginTop: 12, padding: '8px 10px',
+              background: 'rgba(134,112,255,0.06)',
+              border: '1px solid rgba(134,112,255,0.15)',
+              borderRadius: 10, fontSize: 11,
+              color: 'var(--text-muted)', textAlign: 'center', lineHeight: 1.6,
+            }}>
+              {unlockedWeeks.size} / {weeks.length} week terbuka
+            </div>
+          )}
         </div>
 
         {/* Main */}
         <div className="edu-main">
 
-          {/* Week header */}
-          <div className="edu-week-header" style={{ borderColor: `${phaseColor}44` }}>
-            <div className="edu-week-header-left">
-              <div className="edu-phase-badge" style={{ background: `${phaseColor}22`, color: phaseColor, borderColor: `${phaseColor}44` }}>
-                {currentWeek?.phase}
+          {currentWeek && (
+            <div className="edu-week-header" style={{ borderColor: `${phaseColor}44` }}>
+              <div className="edu-week-header-left">
+                <div className="edu-phase-badge" style={{ background: `${phaseColor}22`, color: phaseColor, borderColor: `${phaseColor}44` }}>
+                  {currentWeek.phase}
+                </div>
+                <h2 className="edu-week-heading">Minggu {selectedWeek}: {currentWeek.title}</h2>
               </div>
-              <h2 className="edu-week-heading">Minggu {selectedWeek}: {currentWeek?.title}</h2>
+              <div className="edu-week-header-right">
+                <div className="edu-slide-count">{slides.length} slide{slides.length !== 1 ? 's' : ''}</div>
+                {isEditMode && (
+                  <button className="btn btn-secondary" style={{ fontSize: 12, padding: '6px 14px' }} onClick={() => setAddSlideModal(true)}>
+                    + Tambah Slide
+                  </button>
+                )}
+              </div>
             </div>
-            <div className="edu-week-header-right">
-              <div className="edu-slide-count">{slides.length} slide{slides.length !== 1 ? 's' : ''}</div>
-              {isEditMode && (
-                <button className="btn btn-secondary" style={{ fontSize: 12, padding: '6px 14px' }} onClick={() => setAddSlideModal(true)}>
-                  + Tambah Slide
-                </button>
-              )}
-            </div>
-          </div>
+          )}
 
-          {/* Empty state */}
           {slides.length === 0 ? (
             <div className="edu-empty">
               <div className="edu-empty-line" />
               <div className="edu-empty-title">Belum ada konten untuk minggu ini</div>
               <div className="edu-empty-sub">
-                {isEditMode
-                  ? 'Tambahkan slide pertama untuk mulai mengisi materi minggu ini.'
-                  : 'Konten belum tersedia. Masuk ke Edit Mode untuk menambahkan materi.'}
+                {isEditMode ? 'Tambahkan slide pertama untuk mulai mengisi materi minggu ini.' : 'Konten belum tersedia. Hubungi mentor kamu.'}
               </div>
               {isEditMode && (
                 <button className="btn btn-primary" onClick={() => setAddSlideModal(true)} style={{ marginTop: 16 }}>
@@ -278,7 +562,6 @@ export default function Education() {
             </div>
           ) : (
             <>
-              {/* Slide dots */}
               <div className="edu-slide-dots">
                 {slides.map((s, i) => (
                   <button key={s.id}
@@ -289,12 +572,9 @@ export default function Education() {
                 ))}
               </div>
 
-              {/* Slide content */}
               {currentSlideData && (
                 <div className="edu-slide" ref={slideRef}>
-
                   {editingSlide === currentSlideData.id ? (
-                    /* Edit form */
                     <div className="edu-edit-form">
                       <div className="edu-edit-row">
                         <label>Tipe Slide</label>
@@ -310,46 +590,40 @@ export default function Education() {
                       </div>
                       <div className="edu-edit-row">
                         <label>Konten (gunakan **bold**, • bullet, → arrow, --- divider)</label>
-                        <textarea value={editContent.body || ''} onChange={e => setEditContent(p => ({ ...p, body: e.target.value }))} rows={18} />
+                        <textarea value={editContent.body || ''} onChange={e => setEditContent(p => ({ ...p, body: e.target.value }))} rows={14} />
                       </div>
                       <div className="edu-edit-row">
-                        <label>Image Placeholder</label>
-                        <input type="text" value={editContent.imagePlaceholder || ''} onChange={e => setEditContent(p => ({ ...p, imagePlaceholder: e.target.value }))} placeholder="[PLACEHOLDER: deskripsi gambar...]" />
+                        <label>Image Placeholder (opsional)</label>
+                        <input type="text" value={editContent.imagePlaceholder || ''} onChange={e => setEditContent(p => ({ ...p, imagePlaceholder: e.target.value }))} placeholder="[PLACEHOLDER: deskripsi gambar]" />
                       </div>
                       <div className="edu-edit-actions">
                         <button className="btn btn-secondary" onClick={() => setEditingSlide(null)}>Batal</button>
                         <button className="btn btn-primary" onClick={saveEdit}>Simpan</button>
                       </div>
                     </div>
-
                   ) : (
-                    /* View mode */
                     <>
                       <div className="edu-slide-header">
-                        <div className="edu-slide-type-badge" style={{ color: phaseColor, borderColor: `${phaseColor}44`, background: `${phaseColor}11` }}>
+                        <span className="edu-slide-type-badge" style={{ background: `${phaseColor}22`, color: phaseColor }}>
                           {SLIDE_TYPE_LABELS[currentSlideData.type] || currentSlideData.type}
-                        </div>
-                        <div className="edu-slide-num">{currentSlide + 1} / {slides.length}</div>
+                        </span>
+                        <span className="edu-slide-index">{currentSlide + 1} / {slides.length}</span>
                         {isEditMode && (
                           <div className="edu-slide-actions">
-                            <button className="edu-action-btn" onClick={() => startEdit(currentSlideData)}>Edit</button>
-                            <button className="edu-action-btn edu-action-delete" onClick={() => setConfirmDeleteModal(currentSlideData)}>Remove</button>
+                            <button className="btn btn-secondary" style={{ fontSize: 12, padding: '5px 12px' }} onClick={() => startEdit(currentSlideData)}>Edit</button>
+                            <button className="btn btn-secondary" style={{ fontSize: 12, padding: '5px 12px', color: '#ff0095' }} onClick={() => setConfirmDeleteModal(currentSlideData)}>Hapus</button>
                           </div>
                         )}
                       </div>
 
-                      <h2 className="edu-slide-title" style={{ color: phaseColor }}>{currentSlideData.title}</h2>
+                      <h3 className="edu-slide-title">{currentSlideData.title}</h3>
                       <div className="edu-slide-body">{renderBody(currentSlideData.body)}</div>
 
-                      {/* Image area */}
                       {currentSlideData.image ? (
                         <div className="edu-image-container">
-                          <img src={`file://${currentSlideData.image}`} alt={currentSlideData.title} className="edu-image" />
+                          <img src={`file://${currentSlideData.image}`} alt="slide" className="edu-image" />
                           {isEditMode && (
-                            <div className="edu-image-overlay">
-                              <button className="edu-img-action-btn" onClick={() => handleImageUpload(currentSlide)}>Ganti Gambar</button>
-                              <button className="edu-img-action-btn edu-img-remove-btn" onClick={() => handleImageRemove(currentSlide)}>Hapus</button>
-                            </div>
+                            <button className="edu-image-remove" onClick={() => handleImageRemove(currentSlide)}>✕ Hapus Gambar</button>
                           )}
                         </div>
                       ) : (
@@ -378,7 +652,6 @@ export default function Education() {
                 </div>
               )}
 
-              {/* Navigation */}
               <div className="edu-nav">
                 <button className="edu-nav-btn" onClick={() => goToSlide(currentSlide - 1)} disabled={currentSlide === 0}>Prev</button>
                 <div className="edu-nav-progress">
@@ -395,7 +668,18 @@ export default function Education() {
         </div>
       </div>
 
-      {/* Auth Modal */}
+      {/* Week Unlock Modal */}
+      {weekUnlockModal && (
+        <WeekUnlockModal
+          weekNumber={weekUnlockModal.weekNumber}
+          weekTitle={weekUnlockModal.weekTitle}
+          phaseColor={weekUnlockModal.phaseColor}
+          onUnlock={handleWeekUnlock}
+          onClose={() => setWeekUnlockModal(null)}
+        />
+      )}
+
+      {/* Edit Mode Auth Modal */}
       {authModal && (
         <div className="edu-modal-overlay" onClick={() => setAuthModal(false)}>
           <div className="edu-modal" onClick={e => e.stopPropagation()}>
