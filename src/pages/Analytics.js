@@ -484,7 +484,7 @@ export default function Analytics() {
                 <CartesianGrid {...GRID_P} />
                 <XAxis dataKey="m" tick={TICK} tickLine={false} axisLine={false} />
                 <YAxis tick={TICK} tickLine={false} axisLine={false} domain={[0,100]} tickFormatter={v=>`${v}`} />
-                <Tooltip contentStyle={{background:'#060610',border:'1px solid #2a2a3a',borderRadius:10,fontSize:12}} itemStyle={{color:'#e8edf3'}} />
+                <Tooltip contentStyle={{background:'#060610',border:'1px solid #2a2a3a',borderRadius:10,fontSize:12}} itemStyle={{color:'#e8edf3'}} cursor={{fill:'rgba(255,255,255,0.02)'}} />
                 <ReferenceLine y={50} stroke="#2a2a3a" strokeDasharray="4 4" />
                 <Bar dataKey="Long"  fill={C.profit} fillOpacity={0.85} radius={[4,4,0,0]} maxBarSize={32} />
                 <Bar dataKey="Short" fill={C.blue}   fillOpacity={0.85} radius={[4,4,0,0]} maxBarSize={32} />
@@ -659,7 +659,6 @@ export default function Analytics() {
             background:'rgba(134,112,255,0.04)', borderRadius:14,
             border:'1px solid rgba(134,112,255,0.12)',
           }}>
-            <div style={{fontSize:36,marginBottom:8}}>✅</div>
             <div style={{color:'#8670ff',fontWeight:700,fontSize:15}}>Zero violations logged</div>
             <div style={{color:'#555f6e',fontSize:12,marginTop:4}}>Keep following your rules. Your edge compounds with your discipline.</div>
           </div>
