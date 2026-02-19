@@ -105,7 +105,7 @@ function Journal() {
   useEffect(() => {
     if (!formData.accountId || !showModal) return;
     autoCheckViolations();
-  }, [formData.accountId, formData.entryTime, formData.date, formData.netPL, showModal]);
+  }, [formData.accountId, formData.entryTime, formData.date, formData.netPL, showModal, trades, editingTrade]);
 
   const autoCheckViolations = async () => {
     try {
@@ -164,7 +164,7 @@ function Journal() {
 
       // Hanya set violated jika memang ada pelanggaran (tidak clear manual override)
       if (violated) {
-        setFormData(prev => ({ ...prev, ruleViolation: true }));
+        setFormData(prev => ({ ...prev, ruleViolation: violated }));
       }
     } catch (e) {
       // Silent fail
@@ -295,7 +295,7 @@ function Journal() {
         slPoints:          trade.sl_points,
         tpPoints:          trade.tp_points || '',
         positionSize:      trade.position_size || 1,
-        outcome:           trade.outcome || (trade.net_pl >= 0 ? 'win' : 'loss'),
+        outcome:           trade.outcome || (trade.net_pl > 0 ? 'win' : trade.net_pl < 0 ? 'loss' : 'breakeven'),
         netPL:             trade.net_pl,
         rMultiple:         trade.r_multiple || '',
         notes:             trade.notes || '',

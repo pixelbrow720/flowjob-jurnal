@@ -630,25 +630,26 @@ class DatabaseManager {
   }
 
   getModelPerformance(filters = {}) {
+    // BUG FIX: Filter dipindah dari WHERE ke kondisi JOIN supaya LEFT JOIN
+    // tetap berfungsi benar — model tanpa trades tetap muncul dengan count = 0.
+    // Sebelumnya WHERE clause "merusak" LEFT JOIN jadi efektif INNER JOIN.
+    const joinConditions = ['m.id = t.model_id'];
     const params = [];
-    const conditions = [];
 
     if (filters.accountId) {
-      conditions.push('t.account_id = ?');
+      joinConditions.push('t.account_id = ?');
       params.push(parseInt(filters.accountId));
     }
-    // BUG FIX #2: startDate dan endDate sebelumnya diabaikan sepenuhnya,
-    // sehingga tabel model performance tidak berubah saat user filter by tanggal.
     if (filters.startDate) {
-      conditions.push('t.date >= ?');
+      joinConditions.push('t.date >= ?');
       params.push(filters.startDate);
     }
     if (filters.endDate) {
-      conditions.push('t.date <= ?');
+      joinConditions.push('t.date <= ?');
       params.push(filters.endDate);
     }
 
-    const where = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
+    const joinOn = joinConditions.join(' AND ');
 
     const stmt = this.db.prepare(`
       SELECT 
@@ -660,8 +661,7 @@ class DatabaseManager {
         AVG(t.r_multiple) as avg_r,
         SUM(t.net_pl) as total_pl
       FROM models m
-      LEFT JOIN trades t ON m.id = t.model_id
-      ${where}
+      LEFT JOIN trades t ON ${joinOn}
       GROUP BY m.id, m.name
       ORDER BY total_pl DESC
     `);
