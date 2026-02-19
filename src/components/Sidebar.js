@@ -14,18 +14,18 @@ const navItems = [
   { path: '/analytics', label: 'Analytics',      icon: `${PUB}/a.png` },
   { path: '/calendar',  label: 'Calendar P&L',   icon: `${PUB}/calendar.png` },
   { path: '/risk',      label: 'Trading Rules',  icon: `${PUB}/balance.png` },
+  { path: '/education', label: 'Education',      icon: `${PUB}/book.png` },
 ];
 
 function Sidebar() {
   const [stats, setStats] = useState(null);
-  const location = useLocation(); // FIX: detect navigation changes
+  const location = useLocation();
 
   useEffect(() => {
     loadStats();
-    // Refresh every 10s (was 30s — too slow to reflect new trades)
     const interval = setInterval(loadStats, 10000);
     return () => clearInterval(interval);
-  }, [location]); // FIX: re-run whenever user navigates to a new page
+  }, [location]);
 
   const loadStats = async () => {
     try {
