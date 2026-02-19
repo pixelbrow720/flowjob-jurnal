@@ -27,7 +27,8 @@
  *     />
  */
 
-import React, { useState, useCallback } from 'react';
+// BUG FIX: tambahkan useEffect ke import
+import React, { useState, useEffect, useCallback } from 'react';
 
 /* ── Valid price decimals for futures ─────────────────────── */
 const VALID_DECIMALS = [0, 0.25, 0.5, 0.75];
@@ -102,6 +103,15 @@ const ModeToggle = ({ mode, onChange }) => (
 /* ── Price Input with decimal validation ─────────────────── */
 const PriceInput = ({ label, value, onChange, error, required, placeholder }) => {
   const [raw, setRaw] = useState(value != null ? String(value) : '');
+
+  // BUG FIX #1: Sync raw state ketika prop value berubah dari parent.
+  // Sebelumnya useState hanya diinit sekali saat mount, sehingga ketika
+  // parent mengganti trade yang diedit (value prop berubah), input tetap
+  // menampilkan nilai trade lama. useEffect ini memastikan raw selalu
+  // up-to-date dengan prop terbaru.
+  useEffect(() => {
+    setRaw(value != null ? String(value) : '');
+  }, [value]);
 
   const handleChange = (e) => {
     setRaw(e.target.value);

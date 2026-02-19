@@ -218,6 +218,7 @@ tbody tr:last-child td { border-bottom: none; }
 .outcome-btn { flex: 1; padding: 12px 20px; font-size: 14px; font-weight: 600; border: none; cursor: pointer; transition: all var(--transition-fast); background: var(--bg-tertiary); color: var(--text-muted); }
 .outcome-btn.win.active  { background: rgba(134,112,255,0.2); color: var(--profit-color); }
 .outcome-btn.loss.active { background: rgba(255,0,149,0.2);   color: var(--loss-color); }
+.outcome-btn.be.active { background: rgba(255,170,0,0.2); color: #ffaa00; }
 .outcome-btn:hover:not(.active) { background: var(--bg-elevated); color: var(--text-secondary); }
 
 /* ── Form helpers ── */

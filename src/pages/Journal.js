@@ -36,6 +36,7 @@ const POINT_VALUES = {
 const ALL_INSTRUMENTS = Object.values(INSTRUMENTS).flat();
 
 function calcNetPL(pair, slPoints, tpPoints, positionSize, outcome) {
+  if (outcome === 'breakeven') return 0;
   const pv   = POINT_VALUES[pair] || 1;
   const size = parseInt(positionSize) || 1;
   if (outcome === 'win') {
@@ -45,20 +46,18 @@ function calcNetPL(pair, slPoints, tpPoints, positionSize, outcome) {
   }
 }
 
-// BUG FIX #5 (Minor): Kalau win tapi TP kosong, return null (bukan 0)
-// supaya tidak terlihat seperti breakeven di analytics
 function calcRMultiple(slPoints, tpPoints, outcome) {
   const sl = parseFloat(slPoints) || 0;
   const tp = parseFloat(tpPoints) || 0;
   if (sl === 0) return null;
+  // BUG FIX #4: breakeven → R = 0 (bukan -1)
+  if (outcome === 'breakeven') return 0;
   if (outcome === 'win') {
-    // Jika TP tidak diisi, tidak bisa hitung R → return null
     if (!tpPoints || tp === 0) return null;
     return parseFloat((tp / sl).toFixed(2));
   }
   return -1;
 }
-
 const defaultForm = () => {
   const _d = new Date();
   const localDate = `${_d.getFullYear()}-${String(_d.getMonth() + 1).padStart(2, '0')}-${String(_d.getDate()).padStart(2, '0')}`;
@@ -600,6 +599,13 @@ function Journal() {
                       onClick={() => updateForm({ outcome: 'win' })}
                     >
                       <Icon name="equity" size={14} style={{ marginRight: 5 }} /> WIN
+                    </button>
+                    <button
+                      type="button"
+                      className={`outcome-btn be ${formData.outcome === 'breakeven' ? 'active' : ''}`}
+                      onClick={() => updateForm({ outcome: 'breakeven' })}
+                    >
+                      BE
                     </button>
                     <button
                       type="button"

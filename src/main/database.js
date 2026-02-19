@@ -155,7 +155,7 @@ class DatabaseManager {
     // Sync sl_points from stop_loss if sl_points is empty (migration of old data)
     try {
       this.db.exec(`
-        UPDATE trades SET sl_points = stop_loss WHERE sl_points IS NULL OR sl_points = 0 AND stop_loss > 0
+        UPDATE trades SET sl_points = stop_loss WHERE (sl_points IS NULL OR sl_points = 0) AND stop_loss > 0
       `);
     } catch(e) {}
 
@@ -631,12 +631,21 @@ class DatabaseManager {
 
   getModelPerformance(filters = {}) {
     const params = [];
-    // BUG FIX Minor: hapus kondisi dummy 't.id IS NOT NULL' yang tidak berguna
     const conditions = [];
 
     if (filters.accountId) {
       conditions.push('t.account_id = ?');
       params.push(parseInt(filters.accountId));
+    }
+    // BUG FIX #2: startDate dan endDate sebelumnya diabaikan sepenuhnya,
+    // sehingga tabel model performance tidak berubah saat user filter by tanggal.
+    if (filters.startDate) {
+      conditions.push('t.date >= ?');
+      params.push(filters.startDate);
+    }
+    if (filters.endDate) {
+      conditions.push('t.date <= ?');
+      params.push(filters.endDate);
     }
 
     const where = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';

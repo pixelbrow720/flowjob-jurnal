@@ -144,7 +144,16 @@ export default function Analytics() {
 
   /* computed */
   const S         = useMemo(() => calcStats(trades),        [trades]);
-  const equity    = useMemo(() => buildEquity(trades),      [trades]);
+  const startingBalance = useMemo(() => {
+    if (!accounts.length) return 0;
+    if (filters.accountId) {
+      const acc = accounts.find(a => a.id === parseInt(filters.accountId));
+      return acc ? (acc.initial_balance || 25000) : 0;
+    }
+    // Semua akun: jumlahkan semua initial_balance
+    return accounts.reduce((sum, a) => sum + (a.initial_balance || 25000), 0);
+  }, [accounts, filters.accountId]);
+  const equity = useMemo(() => buildEquity(trades, startingBalance), [trades, startingBalance]);
   const dd        = useMemo(() => buildDrawdown(trades),    [trades]);
   const monthly   = useMemo(() => buildMonthly(trades),     [trades]);
   const dow       = useMemo(() => buildDow(trades),         [trades]);
@@ -950,17 +959,20 @@ function calcStats(trades) {
     n:trades.length, wins:wins.length, losses:losses.length, be:be.length,
     wr, pl, grossW, grossL, pf, exp,
     avgWin, avgLoss, avgR, rStd, bestR, worstR,
-    // BUG FIX 3: Math.max/min with spread operator throws RangeError when the
-    // array is very large (50 000+ trades). Using reduce is safe at any size.
     best:  returns.length ? returns.reduce((a, b) => a > b ? a : b) : 0,
     worst: returns.length ? returns.reduce((a, b) => a < b ? a : b) : 0,
     sharpe, sortino, calmar, std, maxDD,
   };
 }
 
-function buildEquity(trades) {
-  let c=0;
-  return [...trades].sort((a,b)=>new Date(a.date)-new Date(b.date)).map((t,i)=>{c+=t.net_pl;return{l:fmtD(t.date),eq:+c.toFixed(2)};});
+function buildEquity(trades, startingBalance = 0) {
+  let c = startingBalance;
+  return [...trades]
+    .sort((a, b) => new Date(a.date) - new Date(b.date))
+    .map((t, i) => {
+      c += t.net_pl;
+      return { l: fmtD(t.date), eq: +c.toFixed(2) };
+    });
 }
 
 function buildDrawdown(trades) {
@@ -1137,17 +1149,30 @@ function buildGrades(trades) {
 }
 
 function enrichModels(models) {
-  return models.map(m=>{
-    const wins=m.winning_trades||0,total=m.total_trades||1;
-    const gW=m.gross_profit||0,gL=Math.abs(m.gross_loss||0);
-    const pl=(m.total_pl||0);
-    const wr=(wins/total)*100;
-    const pf=gL>0?gW/gL:gW>0?9999:0;
-    // Use losing_trades if provided by DB, else (total-wins) as fallback
-    const lossCount=m.losing_trades!=null?m.losing_trades:(total-wins);
-    const aW=wins>0?gW/wins:0,aL=lossCount>0?gL/lossCount:0;
-    const exp=(wr/100)*aW-((100-wr)/100)*aL;
-    return{...m,winRate:wr,profitFactor:pf,avgR:m.avg_r!=null?parseFloat(m.avg_r):null,expectancy:+exp.toFixed(2),totalPL:+pl};
+  return models.map(m => {
+    const wins  = m.wins        || 0;
+    const total = m.total_trades || 1;
+    const gW    = m.total_wins   || 0;
+    const gL    = Math.abs(m.total_losses || 0);
+    const pl    = m.total_pl     || 0;
+
+    const wr = (wins / total) * 100;
+    const pf = gL > 0 ? gW / gL : gW > 0 ? 9999 : 0;
+
+    // Use total_trades - wins as loss count (DB doesn't return losing_trades)
+    const lossCount = total - wins;
+    const aW  = wins      > 0 ? gW / wins      : 0;
+    const aL  = lossCount > 0 ? gL / lossCount : 0;
+    const exp = (wr / 100) * aW - ((100 - wr) / 100) * aL;
+
+    return {
+      ...m,
+      winRate:      wr,
+      profitFactor: pf,
+      avgR:         m.avg_r != null ? parseFloat(m.avg_r) : null,
+      expectancy:   +exp.toFixed(2),
+      totalPL:      +pl,
+    };
   });
 }
 
