@@ -201,15 +201,29 @@ ipcMain.handle('export-csv', async () => {
 });
 
 function tradesToCSV(trades) {
-  const headers = ['Date', 'Account', 'Model', 'Pair', 'Direction', 'Entry Price',
-    'SL Points', 'TP Points', 'Position Size', 'R Multiple', 'Net P/L',
+  // BUG FIX 1: Added 'Entry Time' column that was previously missing.
+  // BUG FIX 2: All text fields are now properly escaped to prevent comma
+  //            injection from breaking CSV column alignment.
+  const headers = ['Date', 'Entry Time', 'Account', 'Model', 'Pair', 'Direction',
+    'Entry Price', 'SL Points', 'TP Points', 'Position Size', 'R Multiple', 'Net P/L',
     'Outcome', 'Grade', 'Emotional State', 'Mistake Tag', 'Rule Violation', 'Notes'];
+
+  // Wrap any value that contains a comma, double-quote, or newline in double
+  // quotes and escape existing double-quotes per the RFC 4180 CSV standard.
+  const escapeCSV = val => {
+    const str = val == null ? '' : String(val);
+    if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+      return `"${str.replace(/"/g, '""')}"`;
+    }
+    return str;
+  };
 
   const rows = trades.map(t => [
     t.date,
-    t.account_name || '',
-    t.model_name || '',
-    t.pair,
+    t.entry_time || '',          // BUG FIX 1: entry_time now included
+    escapeCSV(t.account_name),   // BUG FIX 2: protected against comma injection
+    escapeCSV(t.model_name),     // BUG FIX 2
+    escapeCSV(t.pair),
     t.direction,
     t.entry_price,
     t.sl_points || '',
@@ -217,12 +231,12 @@ function tradesToCSV(trades) {
     t.position_size,
     t.r_multiple || '',
     t.net_pl,
-    t.outcome || '',
-    t.trade_grade || '',
-    t.emotional_state || '',
-    t.mistake_tag || '',
+    escapeCSV(t.outcome),        // BUG FIX 2
+    escapeCSV(t.trade_grade),    // BUG FIX 2
+    escapeCSV(t.emotional_state),// BUG FIX 2
+    escapeCSV(t.mistake_tag),    // BUG FIX 2
     t.rule_violation ? 'Yes' : 'No',
-    (t.notes || '').replace(/,/g, ';')
+    escapeCSV(t.notes),          // BUG FIX 2: now uses proper RFC 4180 quoting
   ]);
 
   return [headers, ...rows].map(row => row.join(',')).join('\n');

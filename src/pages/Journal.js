@@ -1,57 +1,42 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import './Journal.css';
-import ConfirmDialog from '../components/ConfirmDialog';
-import { PDFExportButton } from '../components/PDFExportModal';
 import Icon from '../components/Icon';
+import SLTPInput from '../components/SLTPInput';
+import PDFExportButton from '../components/PDFExportModal';
+import ConfirmDialog from '../components/ConfirmDialog';
+import './Journal.css';
 
 const { ipcRenderer } = window.require('electron');
 const PUB = process.env.PUBLIC_URL;
 
-// ── Instruments ────────────────────────────────────────────────────────────────
+// ─── Instruments & Point Values ───────────────────────────────────────────────
 const INSTRUMENTS = {
-  'E-mini Index': ['ES', 'NQ', 'YM', 'RTY'],
-  'Micro E-mini': ['MES', 'MNQ', 'MYM', 'M2K'],
-  'FX Futures': ['6E', '6B', '6J', '6A', '6C', '6S', '6N'],
-  'Metals': ['GC', 'SI', 'HG', 'PL', 'PA'],
-  'Micro Metals': ['MGC', 'MSI'],
-  'Energy': ['CL', 'NG', 'QM', 'RB'],
-  'Micro Energy': ['MCL'],
-  'Grains': ['ZC', 'ZS', 'ZW'],
-  'Fixed Income': ['ZB', 'ZN', 'ZF', 'ZT'],
-  'Crypto Futures': ['BTC', 'ETH', 'MBT'],
-  'Soft Commodities': ['KC', 'SB', 'CC', 'CT'],
+  'Index Futures': ['ES', 'NQ', 'RTY', 'YM', 'MES', 'MNQ', 'M2K', 'MYM'],
+  'Micro Futures': ['MCL', 'MGC', 'MSI'],
+  'Energy':        ['CL', 'NG', 'RB', 'HO'],
+  'Metals':        ['GC', 'SI', 'HG', 'PL'],
+  'Grains':        ['ZC', 'ZS', 'ZW', 'ZL', 'ZM'],
+  'Forex':         ['6E', '6J', '6B', '6A', '6C', '6S', '6N'],
+  'Bonds':         ['ZN', 'ZB', 'ZF', 'ZT'],
+  'Softs':         ['KC', 'SB', 'CC', 'CT'],
 };
 
-// Dollar value per 1-point move, per 1 contract
 const POINT_VALUES = {
-  // Index
-  'ES': 50,  'NQ': 20,  'YM': 5,    'RTY': 50,
-  // Micro Index
-  'MES': 5,  'MNQ': 2,  'MYM': 0.5, 'M2K': 5,
-  // FX Futures
-  '6E': 12.5, '6B': 6.25, '6J': 12.5, '6A': 10, '6C': 10, '6S': 12.5, '6N': 10,
-  // Metals
-  'GC': 100, 'SI': 50, 'HG': 25, 'PL': 50, 'PA': 100,
-  // Micro Metals
-  'MGC': 10, 'MSI': 5,
-  // Energy
-  'CL': 1000, 'NG': 1000, 'QM': 500, 'RB': 420,
-  // Micro Energy
-  'MCL': 100,
-  // Grains
-  'ZC': 50, 'ZS': 50, 'ZW': 50,
-  // Fixed Income
-  'ZB': 1000, 'ZN': 1000, 'ZF': 1000, 'ZT': 2000,
-  // Crypto
-  'BTC': 25, 'ETH': 25, 'MBT': 2.5,
-  // Soft
-  'KC': 375, 'SB': 1120, 'CC': 10, 'CT': 500,
+  'ES': 50,  'NQ': 20,  'RTY': 50, 'YM': 5,
+  'MES': 5,  'MNQ': 2,  'M2K': 5,  'MYM': 0.5,
+  'GC': 100, 'SI': 5000,'HG': 250, 'PL': 50,
+  'CL': 1000,'NG': 10000,'RB': 42000,'HO': 42000,
+  'ZC': 50,  'ZS': 50,  'ZW': 50,  'ZL': 600,'ZM': 100,
+  '6E': 125000,'6J': 12500000,'6B': 62500,'6A': 100000,
+  '6C': 100000,'6S': 125000,'6N': 100000,
+  'ZN': 1000,'ZB': 1000,'ZF': 1000,'ZT': 2000,
+  'MCL': 100,'MGC': 10, 'MSI': 50,
+  'KC': 375, 'SB': 1120,'CC': 10, 'CT': 500,
 };
 
 const ALL_INSTRUMENTS = Object.values(INSTRUMENTS).flat();
 
 function calcNetPL(pair, slPoints, tpPoints, positionSize, outcome) {
-  const pv = POINT_VALUES[pair] || 1;
+  const pv   = POINT_VALUES[pair] || 1;
   const size = parseInt(positionSize) || 1;
   if (outcome === 'win') {
     return parseFloat(((parseFloat(tpPoints) || 0) * pv * size).toFixed(2));
@@ -60,11 +45,15 @@ function calcNetPL(pair, slPoints, tpPoints, positionSize, outcome) {
   }
 }
 
+// BUG FIX #5 (Minor): Kalau win tapi TP kosong, return null (bukan 0)
+// supaya tidak terlihat seperti breakeven di analytics
 function calcRMultiple(slPoints, tpPoints, outcome) {
   const sl = parseFloat(slPoints) || 0;
   const tp = parseFloat(tpPoints) || 0;
   if (sl === 0) return null;
   if (outcome === 'win') {
+    // Jika TP tidak diisi, tidak bisa hitung R → return null
+    if (!tpPoints || tp === 0) return null;
     return parseFloat((tp / sl).toFixed(2));
   }
   return -1;
@@ -72,41 +61,42 @@ function calcRMultiple(slPoints, tpPoints, outcome) {
 
 const defaultForm = () => {
   const _d = new Date();
-  const localDate = `${_d.getFullYear()}-${String(_d.getMonth()+1).padStart(2,'0')}-${String(_d.getDate()).padStart(2,'0')}`;
+  const localDate = `${_d.getFullYear()}-${String(_d.getMonth() + 1).padStart(2, '0')}-${String(_d.getDate()).padStart(2, '0')}`;
   return {
-  date: localDate,
-  entryTime: _d.toTimeString().slice(0,5),
-  accountId: '',
-  modelId: '',
-  pair: 'ES',
-  direction: 'Long',
-  entryPrice: '',
-  slPoints: '',
-  tpPoints: '',
-  positionSize: 1,
-  outcome: 'win',
-  netPL: '',
-  rMultiple: '',
-  notes: '',
-  emotionalState: '',
-  mistakeTag: '',
-  ruleViolation: false,
-  setupQualityScore: 5,
-  disciplineScore: 5,
-  tradeGrade: 'B',
-  screenshotBefore: '',
-  screenshotAfter: '',
+    date:              localDate,
+    entryTime:         _d.toTimeString().slice(0, 5),
+    accountId:         '',
+    modelId:           '',
+    pair:              'ES',
+    direction:         'Long',
+    entryPrice:        '',
+    slPoints:          '',
+    tpPoints:          '',
+    positionSize:      1,
+    outcome:           'win',
+    netPL:             '',
+    rMultiple:         '',
+    notes:             '',
+    emotionalState:    '',
+    mistakeTag:        '',
+    ruleViolation:     false,
+    setupQualityScore: 5,
+    disciplineScore:   5,
+    tradeGrade:        'B',
+    screenshotBefore:  '',
+    screenshotAfter:   '',
+    _netPLManual:      false, // tracking flag: apakah user sudah input manual
   };
 };
 
 function Journal() {
-  const [trades, setTrades]           = useState([]);
-  const [models, setModels]           = useState([]);
-  const [accounts, setAccounts]       = useState([]);
-  const [showModal, setShowModal]     = useState(false);
-  const [editingTrade, setEditingTrade] = useState(null);
-  const [filters, setFilters]         = useState({ modelId: '', accountId: '', startDate: '', endDate: '' });
-  const [formData, setFormData]       = useState(defaultForm());
+  const [trades, setTrades]               = useState([]);
+  const [models, setModels]               = useState([]);
+  const [accounts, setAccounts]           = useState([]);
+  const [showModal, setShowModal]         = useState(false);
+  const [editingTrade, setEditingTrade]   = useState(null);
+  const [filters, setFilters]             = useState({ modelId: '', accountId: '', startDate: '', endDate: '' });
+  const [formData, setFormData]           = useState(defaultForm());
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [previewTrade, setPreviewTrade]   = useState(null);
   const [zoomImage, setZoomImage]         = useState(null);
@@ -116,7 +106,7 @@ function Journal() {
   useEffect(() => {
     if (!formData.accountId || !showModal) return;
     autoCheckViolations();
-  }, [formData.accountId, formData.entryTime, formData.date, showModal]);
+  }, [formData.accountId, formData.entryTime, formData.date, formData.netPL, showModal]);
 
   const autoCheckViolations = async () => {
     try {
@@ -128,22 +118,22 @@ function Journal() {
 
       const tradingDayMap = { 0: 'Sun', 1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat' };
       const tradeDate = new Date(formData.date + 'T00:00:00');
-      const dayName = tradingDayMap[tradeDate.getDay()];
+      const dayName   = tradingDayMap[tradeDate.getDay()];
 
       let violated = false;
 
-      // Check trading day
+      // Cek trading day
       if (rules.tradingDays && !rules.tradingDays.includes(dayName)) {
         violated = true;
       }
 
-      // Check trading hours
+      // Cek trading hours
       if (!violated && rules.hoursEnabled && formData.entryTime) {
         const t = formData.entryTime;
         if (t < rules.hoursFrom || t > rules.hoursTo) violated = true;
       }
 
-      // Check max trades per day (exclude currently editing trade)
+      // Cek max trades per day (exclude trade yang sedang diedit)
       if (!violated && rules.maxTradesPerDay > 0) {
         const dayTrades = trades.filter(t =>
           t.date === formData.date &&
@@ -153,7 +143,27 @@ function Journal() {
         if (dayTrades.length >= rules.maxTradesPerDay) violated = true;
       }
 
-      // Only auto-set if violated (don't clear manual overrides)
+      // BUG FIX #1: Cek maxLossPerTrade — kalau loss trade ini melebihi batas
+      if (!violated && rules.maxLossPerTrade > 0) {
+        const currentNetPL = parseFloat(formData.netPL);
+        if (!isNaN(currentNetPL) && currentNetPL < 0 && Math.abs(currentNetPL) > rules.maxLossPerTrade) {
+          violated = true;
+        }
+      }
+
+      // BUG FIX #1: Cek maxLossPerDay — jumlah total loss hari ini
+      if (!violated && rules.maxLossPerDay > 0) {
+        const dayTrades = trades.filter(t =>
+          t.date === formData.date &&
+          t.account_id === accId &&
+          (!editingTrade || t.id !== editingTrade.id)
+        );
+        const dayPL = dayTrades.reduce((sum, t) => sum + t.net_pl, 0);
+        const thisTradePL = parseFloat(formData.netPL) || 0;
+        if ((dayPL + thisTradePL) <= -rules.maxLossPerDay) violated = true;
+      }
+
+      // Hanya set violated jika memang ada pelanggaran (tidak clear manual override)
       if (violated) {
         setFormData(prev => ({ ...prev, ruleViolation: true }));
       }
@@ -165,7 +175,7 @@ function Journal() {
   const loadData = async () => {
     const [modelsList, accountsList] = await Promise.all([
       ipcRenderer.invoke('get-models'),
-      ipcRenderer.invoke('get-accounts')
+      ipcRenderer.invoke('get-accounts'),
     ]);
     setModels(modelsList || []);
     setAccounts(accountsList || []);
@@ -180,12 +190,18 @@ function Journal() {
     setTrades(tradesList || []);
   };
 
-  // Auto-recalculate P&L when relevant fields change
+  // BUG FIX #2: recalculate sekarang TIDAK menimpa netPL kalau user sudah input manual
+  // Flag _netPLManual diset true ketika user mengetik di field netPL secara langsung
   const recalculate = useCallback((data) => {
     if (data.pair && data.slPoints && data.positionSize) {
-      const netPL = calcNetPL(data.pair, data.slPoints, data.tpPoints, data.positionSize, data.outcome);
       const rMultiple = calcRMultiple(data.slPoints, data.tpPoints, data.outcome);
-      return { ...data, netPL, rMultiple: rMultiple !== null ? rMultiple : '' };
+      // Hanya auto-kalkulasi netPL jika user BELUM input manual
+      if (!data._netPLManual) {
+        const netPL = calcNetPL(data.pair, data.slPoints, data.tpPoints, data.positionSize, data.outcome);
+        return { ...data, netPL, rMultiple: rMultiple !== null ? rMultiple : '' };
+      }
+      // Kalau sudah manual, hanya update R-multiple saja
+      return { ...data, rMultiple: rMultiple !== null ? rMultiple : '' };
     }
     return data;
   }, []);
@@ -195,44 +211,52 @@ function Journal() {
     setFormData(recalculate(next));
   };
 
-  const handleSubmit = async () => {
-    // Validate required fields
-    if (!formData.pair) { alert('Please select an instrument.'); return; }
-    if (!formData.entryPrice || isNaN(parseFloat(formData.entryPrice))) { alert('Please enter a valid entry price.'); return; }
-    if (!formData.slPoints || isNaN(parseFloat(formData.slPoints)) || parseFloat(formData.slPoints) <= 0) { alert('Please enter a valid stop loss (in points).'); return; }
+  // Handler khusus untuk perubahan netPL manual oleh user
+  const handleNetPLManualChange = (val) => {
+    setFormData(prev => ({
+      ...prev,
+      netPL: val,
+      _netPLManual: val !== '', // kalau dikosongkan lagi, kembali ke auto
+    }));
+  };
 
-    // Recalculate final P&L to make sure it's set
+  const handleSubmit = async () => {
+    if (!formData.pair)       { alert('Please select an instrument.'); return; }
+    if (!formData.entryPrice  || isNaN(parseFloat(formData.entryPrice))) { alert('Please enter a valid entry price.'); return; }
+    if (!formData.slPoints    || isNaN(parseFloat(formData.slPoints)) || parseFloat(formData.slPoints) <= 0) { alert('Please enter a valid stop loss (in points).'); return; }
+
     const slPts = parseFloat(formData.slPoints) || 0;
     const tpPts = formData.tpPoints ? parseFloat(formData.tpPoints) : 0;
     const size  = parseInt(formData.positionSize) || 1;
+
     const finalNetPL = formData.netPL !== '' && !isNaN(parseFloat(formData.netPL))
       ? parseFloat(formData.netPL)
       : calcNetPL(formData.pair, slPts, tpPts, size, formData.outcome);
     const finalR = calcRMultiple(slPts, tpPts, formData.outcome);
 
     const tradeData = {
-      date:             formData.date,
-      entryTime:        formData.entryTime || null,
-      accountId:        formData.accountId  ? parseInt(formData.accountId)  : null,
-      modelId:          formData.modelId    ? parseInt(formData.modelId)    : null,
-      pair:             formData.pair,
-      direction:        formData.direction,
-      entryPrice:       parseFloat(formData.entryPrice) || 0,
-      slPoints:         slPts,
-      tpPoints:         tpPts || null,
-      positionSize:     size,
-      outcome:          formData.outcome,
-      netPL:            finalNetPL,
-      rMultiple:        finalR,
-      notes:            formData.notes || null,
-      emotionalState:   formData.emotionalState || null,
-      mistakeTag:       formData.mistakeTag || null,
-      ruleViolation:    formData.ruleViolation ? 1 : 0,
+      date:              formData.date,
+      entryTime:         formData.entryTime || null,
+      accountId:         formData.accountId  ? parseInt(formData.accountId)  : null,
+      modelId:           formData.modelId    ? parseInt(formData.modelId)    : null,
+      pair:              formData.pair,
+      direction:         formData.direction,
+      entryPrice:        parseFloat(formData.entryPrice) || 0,
+      slPoints:          slPts,
+      tpPoints:          tpPts || null,
+      positionSize:      size,
+      outcome:           formData.outcome,
+      netPL:             finalNetPL,
+      rMultiple:         finalR,
+      notes:             formData.notes || null,
+      emotionalState:    formData.emotionalState || null,
+      mistakeTag:        formData.mistakeTag || null,
+      ruleViolation:     formData.ruleViolation ? 1 : 0,
       setupQualityScore: parseInt(formData.setupQualityScore) || null,
-      disciplineScore:  parseInt(formData.disciplineScore) || null,
-      tradeGrade:       formData.tradeGrade || null,
-      screenshotBefore: formData.screenshotBefore || null,
-      screenshotAfter:  formData.screenshotAfter  || null,
+      disciplineScore:   parseInt(formData.disciplineScore) || null,
+      tradeGrade:        formData.tradeGrade || null,
+      screenshotBefore:  formData.screenshotBefore || null,
+      screenshotAfter:   formData.screenshotAfter  || null,
     };
 
     try {
@@ -262,34 +286,34 @@ function Journal() {
     if (trade) {
       setEditingTrade(trade);
       const fd = {
-        date:               trade.date,
-        entryTime:          trade.entry_time || '',
-        accountId:          trade.account_id || '',
-        modelId:            trade.model_id || '',
-        pair:               trade.pair,
-        direction:          trade.direction,
-        entryPrice:         trade.entry_price,
-        slPoints:           trade.sl_points,
-        tpPoints:           trade.tp_points || '',
-        positionSize:       trade.position_size || 1,
-        outcome:            trade.outcome || (trade.net_pl >= 0 ? 'win' : 'loss'),
-        netPL:              trade.net_pl,
-        rMultiple:          trade.r_multiple || '',
-        notes:              trade.notes || '',
-        emotionalState:     trade.emotional_state || '',
-        mistakeTag:         trade.mistake_tag || '',
-        ruleViolation:      trade.rule_violation === 1,
-        setupQualityScore:  trade.setup_quality_score || 5,
-        disciplineScore:    trade.discipline_score || 5,
-        tradeGrade:         trade.trade_grade || 'B',
-        screenshotBefore:   trade.screenshot_before || '',
-        screenshotAfter:    trade.screenshot_after  || '',
+        date:              trade.date,
+        entryTime:         trade.entry_time || '',
+        accountId:         trade.account_id || '',
+        modelId:           trade.model_id || '',
+        pair:              trade.pair,
+        direction:         trade.direction,
+        entryPrice:        trade.entry_price,
+        slPoints:          trade.sl_points,
+        tpPoints:          trade.tp_points || '',
+        positionSize:      trade.position_size || 1,
+        outcome:           trade.outcome || (trade.net_pl >= 0 ? 'win' : 'loss'),
+        netPL:             trade.net_pl,
+        rMultiple:         trade.r_multiple || '',
+        notes:             trade.notes || '',
+        emotionalState:    trade.emotional_state || '',
+        mistakeTag:        trade.mistake_tag || '',
+        ruleViolation:     trade.rule_violation === 1,
+        setupQualityScore: trade.setup_quality_score || 5,
+        disciplineScore:   trade.discipline_score || 5,
+        tradeGrade:        trade.trade_grade || 'B',
+        screenshotBefore:  trade.screenshot_before || '',
+        screenshotAfter:   trade.screenshot_after  || '',
+        _netPLManual:      true, // saat edit, anggap nilai P&L sudah "manual" (dari DB)
       };
       setFormData(fd);
     } else {
       setEditingTrade(null);
       const fd = defaultForm();
-      // Pre-fill first account if available
       if (accounts.length > 0) fd.accountId = accounts[0].id;
       setFormData(fd);
     }
@@ -399,7 +423,8 @@ function Journal() {
                   <td className="mono" style={{ fontWeight: 600 }}>{trade.pair}</td>
                   <td>
                     <span className={`badge badge-${trade.direction === 'Long' ? 'success' : 'danger'}`}>
-                      <Icon name={trade.direction === 'Long' ? 'up' : 'down'} size={12} color={trade.direction === 'Long' ? 'profit' : 'loss'} style={{marginRight:4}} />{trade.direction === 'Long' ? 'L' : 'S'}
+                      <Icon name={trade.direction === 'Long' ? 'up' : 'down'} size={12} color={trade.direction === 'Long' ? 'profit' : 'loss'} style={{ marginRight: 4 }} />
+                      {trade.direction === 'Long' ? 'L' : 'S'}
                     </span>
                   </td>
                   <td className="mono">{trade.entry_price}</td>
@@ -437,17 +462,19 @@ function Journal() {
         </div>
       )}
 
-      {/* Modal */}
+      {/* ── Trade Modal ── */}
       {showModal && (
         <div className="modal-overlay" onClick={closeModal}>
           <div className="modal journal-modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h2>{editingTrade ? 'Edit Trade' : 'New Trade'}</h2>
-              <button className="btn btn-ghost" onClick={closeModal} style={{padding:'6px'}}><Icon name="delete" size={14} color="muted" /></button>
+              <button className="btn btn-ghost" onClick={closeModal} style={{ padding: '6px' }}>
+                <Icon name="delete" size={14} color="muted" />
+              </button>
             </div>
 
             <div className="modal-body">
-            {/* Row 1: Date, Time, Account, Model */}
+              {/* Row 1: Date, Time, Account, Model */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 16, marginBottom: 16 }}>
                 <div className="form-group">
                   <label>Date *</label>
@@ -487,7 +514,7 @@ function Journal() {
                   display: 'flex', alignItems: 'center', gap: 8,
                 }}>
                   <span style={{ fontSize: 16 }}>⚠</span>
-                  Rule violation detected — outside allowed hours or trade limit reached for this account.
+                  Rule violation detected — outside allowed hours, trade limit, or loss limit reached for this account.
                 </div>
               )}
 
@@ -527,32 +554,25 @@ function Journal() {
                 <div className="form-group">
                   <label>Entry Price *</label>
                   <input
-                    type="number"
-                    step="any"
+                    type="number" step="any"
                     value={formData.entryPrice}
                     onChange={e => updateForm({ entryPrice: e.target.value })}
-                    required
-                    placeholder="e.g. 5500"
+                    required placeholder="e.g. 5500"
                   />
                 </div>
                 <div className="form-group">
                   <label>Stop Loss (points) *</label>
                   <input
-                    type="number"
-                    step="any"
-                    min="0"
+                    type="number" step="any" min="0"
                     value={formData.slPoints}
                     onChange={e => updateForm({ slPoints: e.target.value })}
-                    required
-                    placeholder="e.g. 5"
+                    required placeholder="e.g. 5"
                   />
                 </div>
                 <div className="form-group">
                   <label>Take Profit (points)</label>
                   <input
-                    type="number"
-                    step="any"
-                    min="0"
+                    type="number" step="any" min="0"
                     value={formData.tpPoints}
                     onChange={e => updateForm({ tpPoints: e.target.value })}
                     placeholder="e.g. 15"
@@ -565,9 +585,7 @@ function Journal() {
                 <div className="form-group">
                   <label>Position Size (contracts) *</label>
                   <input
-                    type="number"
-                    min="1"
-                    max="10"
+                    type="number" min="1" max="10"
                     value={formData.positionSize}
                     onChange={e => updateForm({ positionSize: e.target.value })}
                     required
@@ -603,33 +621,40 @@ function Journal() {
                   </span>
                 </div>
                 <div className="pnl-display-item pnl-main">
-                  <span className="pnl-display-label">Net P&L (Auto)</span>
-                  <span className={`pnl-display-value ${parseFloat(formData.netPL) >= 0 ? 'profit' : 'loss'}`}>
-                    {formData.netPL !== '' ? `${parseFloat(formData.netPL) >= 0 ? '+' : ''}$${Math.abs(parseFloat(formData.netPL) || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '—'}
+                  {/* BUG FIX #2: Net P&L field sekarang punya onChange sendiri supaya
+                      tidak ditimpa oleh auto-kalkulasi ketika user input manual */}
+                  <span className="pnl-display-label">
+                    Net P&L {formData._netPLManual ? '(Manual)' : '(Auto)'}
                   </span>
-                </div>
-                <div className="form-group" style={{ margin: 0 }}>
-                  <label style={{ fontSize: '11px' }}>Override P&L</label>
                   <input
                     type="number"
                     step="any"
                     value={formData.netPL}
-                    onChange={e => setFormData({ ...formData, netPL: e.target.value })}
-                    placeholder="Manual override"
-                    style={{ fontSize: '13px', padding: '10px 12px' }}
+                    onChange={e => handleNetPLManualChange(e.target.value)}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      borderBottom: `1px solid ${formData._netPLManual ? '#ffaa00' : 'transparent'}`,
+                      fontFamily: 'var(--font-mono)',
+                      fontWeight: 800,
+                      fontSize: 24,
+                      color: parseFloat(formData.netPL) >= 0 ? '#8670ff' : '#ff0095',
+                      width: '100%',
+                      outline: 'none',
+                      padding: '2px 0',
+                    }}
+                    placeholder="—"
                   />
+                  {formData._netPLManual && (
+                    <button
+                      type="button"
+                      onClick={() => updateForm({ _netPLManual: false })}
+                      style={{ fontSize: 10, color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer', marginTop: 2 }}
+                    >
+                      ↺ Reset to auto
+                    </button>
+                  )}
                 </div>
-              </div>
-
-              {/* Notes & Psychology */}
-              <div className="form-group">
-                <label>Notes</label>
-                <textarea
-                  value={formData.notes}
-                  onChange={e => updateForm({ notes: e.target.value })}
-                  placeholder="What happened? What did you learn?"
-                  rows={4}
-                />
               </div>
 
               {/* Screenshots */}
@@ -638,7 +663,7 @@ function Journal() {
                   <label>Screenshot Before Entry</label>
                   <button type="button" className="btn btn-secondary" style={{ width: '100%', marginBottom: 8 }}
                     onClick={() => handleSelectScreenshot('screenshotBefore')}>
-                    <Icon name="preview" size={14} style={{marginRight:6}} /> Select Image
+                    <Icon name="preview" size={14} style={{ marginRight: 6 }} /> Select Image
                   </button>
                   {formData.screenshotBefore && (
                     <img src={`file://${formData.screenshotBefore}`} alt="before"
@@ -651,7 +676,7 @@ function Journal() {
                   <label>Screenshot After Exit</label>
                   <button type="button" className="btn btn-secondary" style={{ width: '100%', marginBottom: 8 }}
                     onClick={() => handleSelectScreenshot('screenshotAfter')}>
-                    <Icon name="preview" size={14} style={{marginRight:6}} /> Select Image
+                    <Icon name="preview" size={14} style={{ marginRight: 6 }} /> Select Image
                   </button>
                   {formData.screenshotAfter && (
                     <img src={`file://${formData.screenshotAfter}`} alt="after"
@@ -683,12 +708,21 @@ function Journal() {
                 </div>
               </div>
 
+              <div className="form-group">
+                <label>Notes</label>
+                <textarea
+                  value={formData.notes}
+                  onChange={e => updateForm({ notes: e.target.value })}
+                  rows={4}
+                  placeholder="What did you learn?"
+                />
+              </div>
+
               <div className="form-row-3">
                 <div className="form-group">
                   <label>Setup Quality (1–10)</label>
                   <input
-                    type="number"
-                    min="1" max="10"
+                    type="number" min="1" max="10"
                     value={formData.setupQualityScore}
                     onChange={e => updateForm({ setupQualityScore: e.target.value })}
                   />
@@ -696,8 +730,7 @@ function Journal() {
                 <div className="form-group">
                   <label>Discipline Score (1–10)</label>
                   <input
-                    type="number"
-                    min="1" max="10"
+                    type="number" min="1" max="10"
                     value={formData.disciplineScore}
                     onChange={e => updateForm({ disciplineScore: e.target.value })}
                   />
@@ -742,10 +775,11 @@ function Journal() {
                 </span>
                 {previewTrade.pair}
               </h2>
-              <button className="btn btn-ghost" onClick={() => setPreviewTrade(null)} style={{padding:'6px'}}><Icon name="delete" size={14} color="muted" /></button>
+              <button className="btn btn-ghost" onClick={() => setPreviewTrade(null)} style={{ padding: '6px' }}>
+                <Icon name="delete" size={14} color="muted" />
+              </button>
             </div>
             <div className="modal-body">
-              {/* Screenshots */}
               {(previewTrade.screenshot_before || previewTrade.screenshot_after) && (
                 <div className="form-row" style={{ marginBottom: 20 }}>
                   {previewTrade.screenshot_before && (
@@ -766,19 +800,17 @@ function Journal() {
                   )}
                 </div>
               )}
-
-              {/* Stats Grid */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 20 }}>
                 {[
-                  { label: 'Date',      value: new Date(previewTrade.date + 'T00:00:00').toLocaleDateString() },
-                  { label: 'Entry',     value: previewTrade.entry_price },
-                  { label: 'SL (pts)',  value: previewTrade.sl_points || previewTrade.stop_loss },
-                  { label: 'TP (pts)',  value: previewTrade.tp_points || previewTrade.take_profit || '—' },
-                  { label: 'Contracts',value: previewTrade.position_size },
+                  { label: 'Date',       value: new Date(previewTrade.date + 'T00:00:00').toLocaleDateString() },
+                  { label: 'Entry',      value: previewTrade.entry_price },
+                  { label: 'SL (pts)',   value: previewTrade.sl_points || previewTrade.stop_loss },
+                  { label: 'TP (pts)',   value: previewTrade.tp_points || previewTrade.take_profit || '—' },
+                  { label: 'Contracts', value: previewTrade.position_size },
                   { label: 'R-Multiple', value: `${previewTrade.r_multiple?.toFixed(2) || '—'}R` },
-                  { label: 'Net P/L',  value: `${previewTrade.net_pl >= 0 ? '+' : ''}$${previewTrade.net_pl?.toFixed(2)}`, colored: true },
-                  { label: 'Grade',    value: previewTrade.trade_grade || '—' },
-                  { label: 'Emotion',  value: previewTrade.emotional_state || '—' },
+                  { label: 'Net P/L',   value: `${previewTrade.net_pl >= 0 ? '+' : ''}$${previewTrade.net_pl?.toFixed(2)}`, colored: true },
+                  { label: 'Grade',     value: previewTrade.trade_grade || '—' },
+                  { label: 'Emotion',   value: previewTrade.emotional_state || '—' },
                 ].map((s, i) => (
                   <div key={i} style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '10px 14px' }}>
                     <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>{s.label}</div>
@@ -789,14 +821,12 @@ function Journal() {
                   </div>
                 ))}
               </div>
-
               {previewTrade.notes && (
                 <div style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '14px 16px' }}>
                   <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>Notes</div>
                   <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.7, margin: 0 }}>{previewTrade.notes}</p>
                 </div>
               )}
-
               {previewTrade.mistake_tag && (
                 <div style={{ marginTop: 12 }}>
                   <span className="badge badge-danger" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>

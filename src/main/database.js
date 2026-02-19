@@ -140,7 +140,9 @@ class DatabaseManager {
     addColIfMissing('account_id',         'INTEGER');
     addColIfMissing('sl_points',          'REAL DEFAULT 0');
     addColIfMissing('tp_points',          'REAL');
-    addColIfMissing('outcome',            "TEXT DEFAULT 'loss'");
+    // BUG FIX #3: Default outcome pakai NULL dulu, nanti di-backfill dari net_pl
+    // supaya trade lama yang profit tidak salah jadi 'loss'
+    addColIfMissing('outcome',            'TEXT');
     addColIfMissing('stop_loss',          'REAL DEFAULT 0');
     addColIfMissing('take_profit',        'REAL');
     addColIfMissing('account_size',       'REAL DEFAULT 25000');
@@ -148,12 +150,26 @@ class DatabaseManager {
     addColIfMissing('position_size',      'INTEGER DEFAULT 1');
     addColIfMissing('screenshot_before',  'TEXT');
     addColIfMissing('screenshot_after',   'TEXT');
-    addColIfMissing('entry_time', "TEXT DEFAULT NULL");
+    addColIfMissing('entry_time',         'TEXT DEFAULT NULL');
 
     // Sync sl_points from stop_loss if sl_points is empty (migration of old data)
     try {
       this.db.exec(`
         UPDATE trades SET sl_points = stop_loss WHERE sl_points IS NULL OR sl_points = 0 AND stop_loss > 0
+      `);
+    } catch(e) {}
+
+    // BUG FIX #3: Backfill outcome dari net_pl untuk trade lama yang belum punya outcome
+    // Jadi trade profit tidak salah keitung sebagai 'loss'
+    try {
+      this.db.exec(`
+        UPDATE trades
+        SET outcome = CASE
+          WHEN net_pl > 0 THEN 'win'
+          WHEN net_pl < 0 THEN 'loss'
+          ELSE 'breakeven'
+        END
+        WHERE outcome IS NULL OR outcome = ''
       `);
     } catch(e) {}
 
@@ -212,18 +228,23 @@ class DatabaseManager {
     return this.db.prepare('SELECT * FROM accounts WHERE id = ?').get(id);
   }
 
+  // BUG FIX #4: updateAccount sekarang juga menyimpan currency
   updateAccount(id, account) {
     return this.db.prepare(`
-      UPDATE accounts SET name = ?, description = ? WHERE id = ?
-    `).run(account.name, account.description || '', id);
+      UPDATE accounts SET name = ?, description = ?, currency = ? WHERE id = ?
+    `).run(account.name, account.description || '', account.currency || 'USD', id);
   }
 
+  // BUG FIX #2: deleteAccount sekarang null-kan account_id di semua trade terkait
+  // supaya trade tidak jadi "yatim piatu" (dangling reference)
   deleteAccount(id) {
     // Don't allow deleting default accounts
     const account = this.getAccount(id);
     if (account && (account.type === 'forward' || account.type === 'backtest')) {
       throw new Error('Cannot delete default accounts');
     }
+    // Putuskan relasi trade ke account ini sebelum hapus
+    this.db.prepare('UPDATE trades SET account_id = NULL WHERE account_id = ?').run(id);
     return this.db.prepare('DELETE FROM accounts WHERE id = ?').run(id);
   }
 
@@ -252,7 +273,7 @@ class DatabaseManager {
       model.marketType,
       JSON.stringify(model.timeframes || []),
       model.session,
-      entryLogicStr,                             // ← plain string, bukan JSON.stringify
+      entryLogicStr,
       model.narrative,
       model.idealCondition,
       model.invalidCondition,
@@ -291,21 +312,19 @@ class DatabaseManager {
       if (raw) {
         const parsed = JSON.parse(raw);
         if (typeof parsed === 'object' && parsed !== null) {
-          // Legacy format: extract text from object
           entryLogic = parsed.dailyNarrative || parsed.keyLevel || '';
         } else {
           entryLogic = String(parsed);
         }
       }
     } catch (e) {
-      // Not JSON — it's already a plain string (new format)
       entryLogic = m.entry_logic || '';
     }
 
     return {
       ...m,
       timeframes,
-      entryLogic,                                // ← always a plain string now
+      entryLogic,
       tags: this._parseJSON(m.tags, []),
       confluenceChecklist: this._parseJSON(m.confluence_checklist, []),
       playbookSteps: this._parseJSON(m.playbook_steps, [])
@@ -326,7 +345,6 @@ class DatabaseManager {
       WHERE id = ?
     `);
 
-    // FIX: store entryLogic as plain string, not JSON.stringify(object)
     const entryLogicStr = typeof model.entryLogic === 'object' && model.entryLogic !== null
       ? (model.entryLogic.dailyNarrative || '')
       : (model.entryLogic || '');
@@ -336,7 +354,7 @@ class DatabaseManager {
       model.marketType,
       JSON.stringify(model.timeframes || []),
       model.session,
-      entryLogicStr,                             // ← plain string, bukan JSON.stringify
+      entryLogicStr,
       model.narrative,
       model.idealCondition,
       model.invalidCondition,
@@ -358,10 +376,12 @@ class DatabaseManager {
   createTrade(trade) {
     const cols = this.db.prepare("PRAGMA table_info(trades)").all().map(c => c.name);
 
-    const fields = ['date', 'model_id', 'pair', 'direction', 'entry_price',
+    const fields = [
+      'date', 'model_id', 'pair', 'direction', 'entry_price',
       'position_size', 'r_multiple', 'net_pl',
       'notes', 'emotional_state', 'mistake_tag',
-      'rule_violation', 'setup_quality_score', 'discipline_score', 'trade_grade'];
+      'rule_violation', 'setup_quality_score', 'discipline_score', 'trade_grade',
+    ];
 
     const values = [
       trade.date,
@@ -383,10 +403,10 @@ class DatabaseManager {
 
     // Always fill old NOT NULL columns with safe defaults
     const oldColDefaults = {
-      'stop_loss':    trade.slPoints || 0,
-      'take_profit':  trade.tpPoints || null,
-      'account_size': 25000,
-      'risk_percent': 1,
+      'stop_loss':         trade.slPoints || 0,
+      'take_profit':       trade.tpPoints || null,
+      'account_size':      25000,
+      'risk_percent':      1,
       'screenshot_before': trade.screenshotBefore || null,
       'screenshot_after':  trade.screenshotAfter  || null,
     };
@@ -399,11 +419,17 @@ class DatabaseManager {
       'sl_points':  trade.slPoints || 0,
       'tp_points':  trade.tpPoints || null,
       'account_id': trade.accountId || null,
-      'outcome':    trade.outcome || (trade.netPL >= 0 ? 'win' : 'loss'),
+      'outcome':    trade.outcome || (trade.netPL > 0 ? 'win' : trade.netPL < 0 ? 'loss' : 'breakeven'),
     };
     Object.entries(newCols).forEach(([col, val]) => {
       if (cols.includes(col)) { fields.push(col); values.push(val); }
     });
+
+    // BUG FIX #1: Simpan entry_time ke database
+    if (cols.includes('entry_time')) {
+      fields.push('entry_time');
+      values.push(trade.entryTime || null);
+    }
 
     const placeholders = fields.map(() => '?').join(', ');
     const result = this.db.prepare(
@@ -471,7 +497,7 @@ class DatabaseManager {
       'date = ?', 'model_id = ?', 'pair = ?', 'direction = ?', 'entry_price = ?',
       'position_size = ?', 'r_multiple = ?', 'net_pl = ?',
       'notes = ?', 'emotional_state = ?', 'mistake_tag = ?',
-      'rule_violation = ?', 'setup_quality_score = ?', 'discipline_score = ?', 'trade_grade = ?'
+      'rule_violation = ?', 'setup_quality_score = ?', 'discipline_score = ?', 'trade_grade = ?',
     ];
     const values = [
       trade.date,
@@ -492,10 +518,10 @@ class DatabaseManager {
     ];
 
     const oldColDefaults = {
-      'stop_loss':    trade.slPoints || 0,
-      'take_profit':  trade.tpPoints || null,
-      'account_size': 25000,
-      'risk_percent': 1,
+      'stop_loss':         trade.slPoints || 0,
+      'take_profit':       trade.tpPoints || null,
+      'account_size':      25000,
+      'risk_percent':      1,
       'screenshot_before': trade.screenshotBefore || null,
       'screenshot_after':  trade.screenshotAfter  || null,
     };
@@ -507,11 +533,17 @@ class DatabaseManager {
       'sl_points':  trade.slPoints || 0,
       'tp_points':  trade.tpPoints || null,
       'account_id': trade.accountId || null,
-      'outcome':    trade.outcome || (trade.netPL >= 0 ? 'win' : 'loss'),
+      'outcome':    trade.outcome || (trade.netPL > 0 ? 'win' : trade.netPL < 0 ? 'loss' : 'breakeven'),
     };
     Object.entries(newCols).forEach(([col, val]) => {
       if (cols.includes(col)) { sets.push(`${col} = ?`); values.push(val); }
     });
+
+    // BUG FIX #1: Update entry_time juga saat edit trade
+    if (cols.includes('entry_time')) {
+      sets.push('entry_time = ?');
+      values.push(trade.entryTime || null);
+    }
 
     values.push(id);
     const result = this.db.prepare(
@@ -525,7 +557,7 @@ class DatabaseManager {
   deleteTrade(id) {
     const trade = this.getTrade(id);
     const result = this.db.prepare('DELETE FROM trades WHERE id = ?').run(id);
-    
+
     // Reverse balance effect
     if (trade && trade.account_id) {
       this.updateAccountBalance(trade.account_id, -trade.net_pl);
@@ -537,40 +569,40 @@ class DatabaseManager {
 
   getAnalytics(filters = {}) {
     const trades = this.getTrades(filters);
-    
+
     if (trades.length === 0) return null;
 
-    const wins = trades.filter(t => t.net_pl > 0);
+    const wins   = trades.filter(t => t.net_pl > 0);
     const losses = trades.filter(t => t.net_pl < 0);
-    
-    const totalWins = wins.reduce((sum, t) => sum + t.net_pl, 0);
+
+    const totalWins   = wins.reduce((sum, t) => sum + t.net_pl, 0);
     const totalLosses = Math.abs(losses.reduce((sum, t) => sum + t.net_pl, 0));
-    
-    const winRate = (wins.length / trades.length) * 100;
-    const avgWin = wins.length > 0 ? totalWins / wins.length : 0;
-    const avgLoss = losses.length > 0 ? totalLosses / losses.length : 0;
-    
+
+    const winRate     = (wins.length / trades.length) * 100;
+    const avgWin      = wins.length   > 0 ? totalWins   / wins.length   : 0;
+    const avgLoss     = losses.length > 0 ? totalLosses / losses.length : 0;
+
     const profitFactor = totalLosses > 0 ? totalWins / totalLosses : totalWins;
-    const expectancy = (winRate / 100) * avgWin - ((100 - winRate) / 100) * avgLoss;
-    
-    const returns = trades.map(t => t.net_pl);
-    const avgReturn = returns.reduce((sum, r) => sum + r, 0) / returns.length;
-    const stdDev = Math.sqrt(
+    const expectancy   = (winRate / 100) * avgWin - ((100 - winRate) / 100) * avgLoss;
+
+    const returns    = trades.map(t => t.net_pl);
+    const avgReturn  = returns.reduce((sum, r) => sum + r, 0) / returns.length;
+    const stdDev     = Math.sqrt(
       returns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) / returns.length
     );
-    
+
     const sharpeRatio = stdDev > 0 ? (avgReturn / stdDev) * Math.sqrt(252) : 0;
-    
+
     const negativeReturns = returns.filter(r => r < 0);
-    const downDev = negativeReturns.length > 0 
+    const downDev = negativeReturns.length > 0
       ? Math.sqrt(negativeReturns.reduce((sum, r) => sum + Math.pow(r, 2), 0) / negativeReturns.length)
       : stdDev;
     const sortinoRatio = downDev > 0 ? (avgReturn / downDev) * Math.sqrt(252) : 0;
-    
-    let cumPL = 0;
-    let maxEquity = 0;
+
+    let cumPL      = 0;
+    let maxEquity  = 0;
     let maxDrawdown = 0;
-    
+
     [...trades].sort((a, b) => new Date(a.date) - new Date(b.date)).forEach(t => {
       cumPL += t.net_pl;
       if (cumPL > maxEquity) maxEquity = cumPL;
@@ -590,22 +622,24 @@ class DatabaseManager {
       stdDev,
       totalPL: trades.reduce((sum, t) => sum + t.net_pl, 0),
       maxDrawdown,
-      avgRMultiple: trades.filter(t => t.r_multiple != null).reduce((sum, t) => sum + t.r_multiple, 0) / (trades.filter(t => t.r_multiple != null).length || 1),
-      bestTrade: Math.max(...trades.map(t => t.net_pl)),
-      worstTrade: Math.min(...trades.map(t => t.net_pl))
+      avgRMultiple: trades.filter(t => t.r_multiple != null).reduce((sum, t) => sum + t.r_multiple, 0)
+        / (trades.filter(t => t.r_multiple != null).length || 1),
+      bestTrade:  Math.max(...trades.map(t => t.net_pl)),
+      worstTrade: Math.min(...trades.map(t => t.net_pl)),
     };
   }
 
   getModelPerformance(filters = {}) {
     const params = [];
-    const conditions = ['t.id IS NOT NULL'];
+    // BUG FIX Minor: hapus kondisi dummy 't.id IS NOT NULL' yang tidak berguna
+    const conditions = [];
 
     if (filters.accountId) {
       conditions.push('t.account_id = ?');
       params.push(parseInt(filters.accountId));
     }
 
-    const where = 'WHERE ' + conditions.join(' AND ');
+    const where = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
 
     const stmt = this.db.prepare(`
       SELECT 
@@ -622,12 +656,12 @@ class DatabaseManager {
       GROUP BY m.id, m.name
       ORDER BY total_pl DESC
     `);
-    
+
     const results = stmt.all(...params);
     return results.map(r => ({
       ...r,
-      winRate: r.total_trades > 0 ? (r.wins / r.total_trades) * 100 : 0,
-      profitFactor: r.total_losses > 0 ? r.total_wins / r.total_losses : r.total_wins
+      winRate:      r.total_trades > 0 ? (r.wins / r.total_trades) * 100 : 0,
+      profitFactor: r.total_losses > 0 ? r.total_wins / r.total_losses : r.total_wins,
     }));
   }
 
@@ -702,23 +736,23 @@ class DatabaseManager {
 
   _defaultTradingRules() {
     return {
-      tradingDays:    ['Mon','Tue','Wed','Thu','Fri'],
-      hoursEnabled:   true,
-      hoursFrom:      '09:00',
-      hoursTo:        '16:00',
-      maxTradesPerDay: 0,      // 0 = unlimited
-      maxLossPerTrade: 0,      // 0 = disabled
-      maxLossPerDay:   0,      // 0 = disabled
-      manualRules:    [],
+      tradingDays:     ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+      hoursEnabled:    true,
+      hoursFrom:       '09:00',
+      hoursTo:         '16:00',
+      maxTradesPerDay: 0, // 0 = unlimited
+      maxLossPerTrade: 0, // 0 = disabled
+      maxLossPerDay:   0, // 0 = disabled
+      manualRules:     [],
     };
   }
 
   exportToJSON() {
     return {
-      accounts: this.getAccounts(),
-      models: this.getModels(),
-      trades: this.getTrades(),
-      exportDate: new Date().toISOString()
+      accounts:   this.getAccounts(),
+      models:     this.getModels(),
+      trades:     this.getTrades(),
+      exportDate: new Date().toISOString(),
     };
   }
 

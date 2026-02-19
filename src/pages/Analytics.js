@@ -950,8 +950,10 @@ function calcStats(trades) {
     n:trades.length, wins:wins.length, losses:losses.length, be:be.length,
     wr, pl, grossW, grossL, pf, exp,
     avgWin, avgLoss, avgR, rStd, bestR, worstR,
-    best:  returns.length?Math.max(...returns):0,
-    worst: returns.length?Math.min(...returns):0,
+    // BUG FIX 3: Math.max/min with spread operator throws RangeError when the
+    // array is very large (50 000+ trades). Using reduce is safe at any size.
+    best:  returns.length ? returns.reduce((a, b) => a > b ? a : b) : 0,
+    worst: returns.length ? returns.reduce((a, b) => a < b ? a : b) : 0,
     sharpe, sortino, calmar, std, maxDD,
   };
 }
