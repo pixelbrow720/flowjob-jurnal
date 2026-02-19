@@ -374,6 +374,26 @@ ipcMain.handle('export-pdf-custom', async (event, startDate, endDate) => {
     defaultPath: `custom-report-${startDate}-to-${endDate}.pdf`
   });
 
+ipcMain.handle('get-education-weeks', async () => {
+  return db.getEducationWeeks();
+});
+
+ipcMain.handle('get-education-slides', async (event, weekNumber) => {
+  return db.getEducationSlides(weekNumber);
+});
+
+ipcMain.handle('upsert-education-slide', async (event, slide) => {
+  return db.upsertEducationSlide(slide);
+});
+
+ipcMain.handle('delete-education-slide', async (event, id) => {
+  return db.deleteEducationSlide(id);
+});
+
+ipcMain.handle('reorder-education-slides', async (event, weekNumber, orderedIds) => {
+  return db.reorderEducationSlides(weekNumber, orderedIds);
+});
+
   if (!result.canceled) {
     try {
       pdfExporter.generateCustomReport(startDate, endDate, result.filePath);

@@ -199,6 +199,56 @@ class DatabaseManager {
     addDJColIfMissing('lessons_learned',      'TEXT');
     addDJColIfMissing('discipline_score',     'INTEGER DEFAULT 5');
 
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS education_weeks (
+        week_number INTEGER PRIMARY KEY,
+        title TEXT NOT NULL,
+        phase TEXT NOT NULL
+      );
+    `);
+
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS education_slides (
+        id TEXT PRIMARY KEY,
+        week_number INTEGER NOT NULL,
+        slide_order INTEGER NOT NULL DEFAULT 0,
+        type TEXT NOT NULL DEFAULT 'concept',
+        title TEXT NOT NULL,
+        body TEXT DEFAULT '',
+        image TEXT,
+        image_placeholder TEXT,
+        FOREIGN KEY (week_number) REFERENCES education_weeks(week_number)
+      );
+    `);
+
+    // seed 12 minggu
+    const eduExists = this.db.prepare(
+      'SELECT week_number FROM education_weeks WHERE week_number = 1'
+    ).get();
+
+    if (!eduExists) {
+      const insertWeek = this.db.prepare(
+        'INSERT OR IGNORE INTO education_weeks (week_number, title, phase) VALUES (?, ?, ?)'
+      );
+
+      const weekData = [
+        [1,'Foundation — Auction Logic & Market Structure','Intensive Learning'],
+        [2,'Liquidity Mapping & Level Building','Intensive Learning'],
+        [3,'Footprint Reading & Delta Divergence','Intensive Learning'],
+        [4,'Imbalance & Fair Value Gap (FVG)','Intensive Learning'],
+        [5,'Pattern Library & Context Filtering','Intensive Learning'],
+        [6,'Finalisasi 3 Setup Kandidat','Intensive Learning'],
+        [7,'Backtest Setup A & B','Backtest & Validation'],
+        [8,'Backtest Setup C & Evaluasi','Backtest & Validation'],
+        [9,'Forward Test Setup Terpilih','Forward Test'],
+        [10,'Lanjutan Forward Test & Evaluasi Data','Forward Test'],
+        [11,'Forward Test dengan Parameter Adjustment','Refinement & Adjustment'],
+        [12,'Finalisasi Sistem & Dry Run','Refinement & Adjustment'],
+      ];
+
+      weekData.forEach(([n,t,p]) => insertWeek.run(n,t,p));
+    }
+
     console.log('Database initialized successfully');
   }
 
@@ -723,6 +773,60 @@ class DatabaseManager {
 
   deleteDailyJournal(date) {
     return this.db.prepare('DELETE FROM daily_journals WHERE date = ?').run(date);
+  }
+
+  getEducationWeeks() {
+    return this.db.prepare(
+      'SELECT * FROM education_weeks ORDER BY week_number ASC'
+    ).all();
+  }
+
+  getEducationSlides(weekNumber) {
+    return this.db.prepare(
+      'SELECT * FROM education_slides WHERE week_number = ? ORDER BY slide_order ASC'
+    ).all(weekNumber);
+  }
+
+  upsertEducationSlide(slide) {
+    return this.db.prepare(`
+      INSERT INTO education_slides
+        (id, week_number, slide_order, type, title, body, image, image_placeholder)
+      VALUES (@id, @weekNumber, @slideOrder, @type, @title, @body, @image, @imagePlaceholder)
+      ON CONFLICT(id) DO UPDATE SET
+        slide_order       = excluded.slide_order,
+        type              = excluded.type,
+        title             = excluded.title,
+        body              = excluded.body,
+        image             = excluded.image,
+        image_placeholder = excluded.image_placeholder
+    `).run({
+      id: slide.id,
+      weekNumber: slide.weekNumber,
+      slideOrder: slide.slideOrder,
+      type: slide.type,
+      title: slide.title,
+      body: slide.body || '',
+      image: slide.image || null,
+      imagePlaceholder: slide.imagePlaceholder || null,
+    });
+  }
+
+  deleteEducationSlide(id) {
+    return this.db.prepare(
+      'DELETE FROM education_slides WHERE id = ?'
+    ).run(id);
+  }
+
+  reorderEducationSlides(weekNumber, orderedIds) {
+    const stmt = this.db.prepare(
+      'UPDATE education_slides SET slide_order = ? WHERE id = ? AND week_number = ?'
+    );
+
+    const reorder = this.db.transaction((ids) => {
+      ids.forEach((id, index) => stmt.run(index, id, weekNumber));
+    });
+
+    reorder(orderedIds);
   }
 
   getTradingRules(accountId) {
