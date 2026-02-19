@@ -5,29 +5,28 @@ const { ipcRenderer } = window.require('electron');
 const crypto           = window.require('crypto');
 
 // ─── PASSWORD HASHES (SHA-256) ────────────────────────────────────────────────
-// Password asli TIDAK tersimpan di sini — hanya hash-nya.
-// Untuk mengubah password: jalankan di terminal →
-//   node -e "const c=require('crypto');console.log(c.createHash('sha256').update('PASSWORD_BARU').digest('hex'))"
-// Lalu paste hasilnya di bawah.
+const h = (s) => crypto.createHash('sha256').update(s).digest('hex');
 
-const hash = (s) => crypto.createHash('sha256').update(s).digest('hex');
+// ADMIN hash
+const ADMIN_HASH  = '69f33d08a6a095996e164219c615b68397961d6f01a0e65fdbdd68e1933a36d1';
 
-const ACCESS_HASH = '22ddc5f9a7c9ded7ca8379628e8d6c2ac88363e8275e0f90c7ff8425d1d47618'; // FLOWJOB666
-const EDIT_HASH   = '0cb09421cbc491b47f25b8545f11363f3aa1b440c94303597e4359774ce1b3d8'; // 140700
+// STUDENT hash
+const ACCESS_HASH = '22ddc5f9a7c9ded7ca8379628e8d6c2ac88363e8275e0f90c7ff8425d1d47618';
 
+// Per-week hashes — bagikan password aslinya ke murid sesuai progress
 const WEEK_HASHES = {
-  1:  '41c9aa5876dd960a4e3578cb561aeb22ba6654dc4c66f0e5a6e3d4e077a116f3',
-  2:  'afa81aebad49147e354551d3e2ae69abf9dea12afcaab5375e4533b288ae0e5b',
-  3:  '2c4186b6d16b60307dadd9c8004a54397f6c72c7a689d49bf8400e93ca127107',
-  4:  '059aa9664b3ad496df9acb6ac0148b4416ba701a99bb89673a6a76d6fff99556',
-  5:  '3116a57435ef36376d26eff5cd8e32a9f69ae6bd5358085d3d68338fba48964e',
-  6:  '3e3c7c47457c014bce0efad1a7643f5c7c28bdc4e7e448abcbf5996492e6115f',
-  7:  'd7488bea2f44bf4557ad9ee52244b3942d28389cb14aa5d7151580b6c0639035',
-  8:  '2e7f3a5dd59950f43c47e26347fc324c54796b29f2670c274956249a73ba6274',
-  9:  'b1e41ddc609df311a21dd9a27fd4fa22f00261eb745888c362b15e17403792bb',
-  10: '5d4716e22d7e7281602aaebb6ccb753ff05c60d9e1eeafb50a0f991a32ddd439',
-  11: 'c4caf4be588f1edf99d87eb60e1fbd1e183ff69ad712e68fbe82a0251d20291e',
-  12: 'f48ec9018718a3b887afcd4086a543772ff5177f46ecd7a4dc96b0a7169c8aa5',
+  1:  '41c9aa5876dd960a4e3578cb561aeb22ba6654dc4c66f0e5a6e3d4e077a116f3', 
+  2:  'afa81aebad49147e354551d3e2ae69abf9dea12afcaab5375e4533b288ae0e5b', 
+  3:  '2c4186b6d16b60307dadd9c8004a54397f6c72c7a689d49bf8400e93ca127107', 
+  4:  '059aa9664b3ad496df9acb6ac0148b4416ba701a99bb89673a6a76d6fff99556', 
+  5:  '3116a57435ef36376d26eff5cd8e32a9f69ae6bd5358085d3d68338fba48964e', 
+  6:  '3e3c7c47457c014bce0efad1a7643f5c7c28bdc4e7e448abcbf5996492e6115f', 
+  7:  'd7488bea2f44bf4557ad9ee52244b3942d28389cb14aa5d7151580b6c0639035', 
+  8:  '2e7f3a5dd59950f43c47e26347fc324c54796b29f2670c274956249a73ba6274', 
+  9:  'b1e41ddc609df311a21dd9a27fd4fa22f00261eb745888c362b15e17403792bb', 
+  10: '5d4716e22d7e7281602aaebb6ccb753ff05c60d9e1eeafb50a0f991a32ddd439', 
+  11: 'c4caf4be588f1edf99d87eb60e1fbd1e183ff69ad712e68fbe82a0251d20291e', 
+  12: 'f48ec9018718a3b887afcd4086a543772ff5177f46ecd7a4dc96b0a7169c8aa5', 
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -44,14 +43,12 @@ const SLIDE_TYPE_LABELS = { intro: 'Intro', concept: 'Concept', homework: 'Task'
 // ─── Shake Hook ───────────────────────────────────────────────────────────────
 function useShake() {
   const [shaking, setShaking] = useState(false);
-  const trigger = () => {
-    setShaking(true);
-    setTimeout(() => setShaking(false), 500);
-  };
+  const trigger = () => { setShaking(true); setTimeout(() => setShaking(false), 500); };
   return [shaking, trigger];
 }
 
 // ─── Entry Gate ───────────────────────────────────────────────────────────────
+// Handles both ADMIN and STUDENT login in one screen
 function EntryGate({ onUnlock }) {
   const [input, setInput]     = useState('');
   const [error, setError]     = useState('');
@@ -61,8 +58,13 @@ function EntryGate({ onUnlock }) {
   useEffect(() => { inputRef.current?.focus(); }, []);
 
   const handleSubmit = () => {
-    if (hash(input) === ACCESS_HASH) {
-      onUnlock();
+    const hashed = h(input);
+    if (hashed === ADMIN_HASH) {
+      // Admin masuk → unlock semua, edit mode aktif
+      onUnlock({ isAdmin: true });
+    } else if (hashed === ACCESS_HASH) {
+      // Student masuk → per-week lock aktif
+      onUnlock({ isAdmin: false });
     } else {
       setError('Password salah. Coba lagi.');
       triggerShake();
@@ -85,21 +87,20 @@ function EntryGate({ onUnlock }) {
         boxShadow: '0 30px 80px rgba(0,0,0,0.6)',
         animation: 'modalIn 0.22s ease',
       }}>
+
         <div style={{
           width: 64, height: 64, borderRadius: 18,
           background: 'rgba(134,112,255,0.12)',
           border: '1px solid rgba(134,112,255,0.3)',
           display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 30,
-        }}>
-          🎓
-        </div>
+        }}>🎓</div>
 
         <div style={{ textAlign: 'center' }}>
           <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.3px' }}>
             Education Center
           </div>
           <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 6, lineHeight: 1.6 }}>
-            Area khusus bootcamp. Masukkan access password untuk melanjutkan.
+            Area khusus bootcamp. Masukkan password untuk melanjutkan.
           </div>
         </div>
 
@@ -110,7 +111,7 @@ function EntryGate({ onUnlock }) {
             value={input}
             onChange={e => { setInput(e.target.value); setError(''); }}
             onKeyDown={e => e.key === 'Enter' && handleSubmit()}
-            placeholder="Access password..."
+            placeholder="Masukkan password..."
             style={{
               width: '100%', boxSizing: 'border-box',
               background: 'var(--bg-tertiary)',
@@ -165,7 +166,7 @@ function WeekUnlockModal({ weekNumber, weekTitle, phaseColor, onUnlock, onClose 
   useEffect(() => { inputRef.current?.focus(); }, []);
 
   const handleSubmit = () => {
-    if (hash(input) === WEEK_HASHES[weekNumber]) {
+    if (h(input) === WEEK_HASHES[weekNumber]) {
       onUnlock(weekNumber);
     } else {
       setError('Password week salah. Minta ke mentor kamu!');
@@ -177,24 +178,20 @@ function WeekUnlockModal({ weekNumber, weekTitle, phaseColor, onUnlock, onClose 
   return (
     <div className="edu-modal-overlay" onClick={onClose}>
       <div className="edu-modal" onClick={e => e.stopPropagation()}
-        style={{ animation: 'modalIn 0.18s ease', alignItems: 'center' }}>
+        style={{ alignItems: 'center' }}>
 
         <div style={{
           width: 52, height: 52, borderRadius: 14,
-          background: `${phaseColor}18`,
-          border: `1px solid ${phaseColor}44`,
+          background: `${phaseColor}18`, border: `1px solid ${phaseColor}44`,
           display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24,
-        }}>
-          🔒
-        </div>
+        }}>🔒</div>
 
         <div style={{ textAlign: 'center' }}>
           <div className="edu-modal-title" style={{ textAlign: 'center' }}>
             Week {weekNumber} Terkunci
           </div>
           <div className="edu-modal-sub" style={{ textAlign: 'center' }}>
-            <strong style={{ color: phaseColor }}>{weekTitle}</strong>
-            <br />
+            <strong style={{ color: phaseColor }}>{weekTitle}</strong><br />
             Masukkan password week ini dari mentor kamu.
           </div>
         </div>
@@ -215,9 +212,7 @@ function WeekUnlockModal({ weekNumber, weekTitle, phaseColor, onUnlock, onClose 
             placeholder="Password week..."
           />
           {error && (
-            <div className="edu-modal-error" style={{ textAlign: 'center', marginTop: 6 }}>
-              {error}
-            </div>
+            <div className="edu-modal-error" style={{ textAlign: 'center', marginTop: 6 }}>{error}</div>
           )}
         </div>
 
@@ -235,26 +230,28 @@ function WeekUnlockModal({ weekNumber, weekTitle, phaseColor, onUnlock, onClose 
 
 // ─── Main Export ──────────────────────────────────────────────────────────────
 export default function Education() {
-  const [unlocked, setUnlocked] = useState(false);
-  if (!unlocked) return <EntryGate onUnlock={() => setUnlocked(true)} />;
-  return <EducationContent />;
+  const [session, setSession] = useState(null); // null | { isAdmin: boolean }
+
+  if (!session) {
+    return <EntryGate onUnlock={(s) => setSession(s)} />;
+  }
+  return <EducationContent isAdmin={session.isAdmin} />;
 }
 
 // ─── Education Content ────────────────────────────────────────────────────────
-function EducationContent() {
+function EducationContent({ isAdmin }) {
   const [weeks, setWeeks]               = useState([]);
   const [selectedWeek, setSelectedWeek] = useState(null);
   const [slides, setSlides]             = useState([]);
   const [currentSlide, setCurrentSlide] = useState(0);
   const [loading, setLoading]           = useState(true);
 
-  const [unlockedWeeks, setUnlockedWeeks]     = useState(new Set([1]));
+  // Admin → semua week langsung terbuka. Student → hanya week 1
+  const [unlockedWeeks, setUnlockedWeeks]     = useState(isAdmin ? new Set(Array.from({length: 12}, (_, i) => i + 1)) : new Set([1]));
   const [weekUnlockModal, setWeekUnlockModal] = useState(null);
 
-  const [isEditMode, setIsEditMode]       = useState(false);
-  const [authModal, setAuthModal]         = useState(false);
-  const [passwordInput, setPasswordInput] = useState('');
-  const [passwordError, setPasswordError] = useState('');
+  // Admin → edit mode langsung aktif. Student → tidak
+  const [isEditMode, setIsEditMode] = useState(isAdmin);
 
   const [editingSlide, setEditingSlide]   = useState(null);
   const [editContent, setEditContent]     = useState({});
@@ -272,12 +269,16 @@ function EducationContent() {
       const list = data || [];
       setWeeks(list);
       if (list.length > 0) setSelectedWeek(list[0].week_number);
+      // Kalau admin, pastikan semua week ke-unlock setelah data masuk
+      if (isAdmin) {
+        setUnlockedWeeks(new Set(list.map(w => w.week_number)));
+      }
     } catch (err) {
       console.error('Failed to load education weeks:', err);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isAdmin]);
 
   const loadSlides = useCallback(async (weekNum) => {
     try {
@@ -319,30 +320,20 @@ function EducationContent() {
     if (idx >= 0 && idx < slides.length) setCurrentSlide(idx);
   };
 
-  // ── Edit Mode Auth ────────────────────────────────────────────────────────
+  // ── Toggle Edit Mode (tanpa password) ────────────────────────────────────
 
-  const openAuthModal = () => {
-    setAuthModal(true);
-    setPasswordInput('');
-    setPasswordError('');
-  };
-
-  const confirmAuth = () => {
-    if (hash(passwordInput) === EDIT_HASH) {
-      setIsEditMode(true);
-      setAuthModal(false);
-      setUnlockedWeeks(new Set(weeks.map(w => w.week_number)));
-    } else {
-      setPasswordError('Password salah. Coba lagi.');
-      setPasswordInput('');
-    }
-  };
-
-  const exitEditMode = () => {
-    setIsEditMode(false);
+  const toggleEditMode = () => {
+    const next = !isEditMode;
+    setIsEditMode(next);
     setEditingSlide(null);
-    setUnlockedWeeks(new Set([1]));
-    setSelectedWeek(weeks[0]?.week_number ?? 1);
+    if (next) {
+      // Masuk edit mode → buka semua week
+      setUnlockedWeeks(new Set(weeks.map(w => w.week_number)));
+    } else if (!isAdmin) {
+      // Keluar edit mode (student) → reset ke week 1 saja
+      setUnlockedWeeks(new Set([1]));
+      setSelectedWeek(weeks[0]?.week_number ?? 1);
+    }
   };
 
   // ── Slide CRUD ────────────────────────────────────────────────────────────
@@ -467,15 +458,31 @@ function EducationContent() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
           <div>
             <h1 className="page-title">Education Center</h1>
-            <p className="page-subtitle">Materi Bootcamp Orderflow — Kurikulum 3 Bulan</p>
+            <p className="page-subtitle">
+              Materi Bootcamp Orderflow — Kurikulum 3 Bulan
+              {isAdmin && (
+                <span style={{
+                  marginLeft: 10, fontSize: 11, fontWeight: 700,
+                  background: 'rgba(134,112,255,0.15)',
+                  color: '#8670ff', border: '1px solid rgba(134,112,255,0.3)',
+                  borderRadius: 6, padding: '2px 8px', letterSpacing: '0.3px',
+                }}>
+                  ADMIN
+                </span>
+              )}
+            </p>
           </div>
-          {isEditMode ? (
-            <button className="edu-edit-mode-btn edu-edit-mode-btn--active" onClick={exitEditMode}>
-              <span className="edu-edit-mode-dot" /> Edit Mode Aktif — Klik untuk keluar
-            </button>
-          ) : (
-            <button className="edu-edit-mode-btn" onClick={openAuthModal}>Edit Mode</button>
-          )}
+
+          {/* Tombol Edit Mode — toggle langsung, tanpa password */}
+          <button
+            className={`edu-edit-mode-btn ${isEditMode ? 'edu-edit-mode-btn--active' : ''}`}
+            onClick={toggleEditMode}
+          >
+            {isEditMode
+              ? <><span className="edu-edit-mode-dot" /> Edit Mode Aktif — Klik untuk keluar</>
+              : 'Edit Mode'
+            }
+          </button>
         </div>
       </div>
 
@@ -512,7 +519,7 @@ function EducationContent() {
             );
           })}
 
-          {!isEditMode && (
+          {!isAdmin && !isEditMode && (
             <div style={{
               marginTop: 12, padding: '8px 10px',
               background: 'rgba(134,112,255,0.06)',
@@ -552,7 +559,9 @@ function EducationContent() {
               <div className="edu-empty-line" />
               <div className="edu-empty-title">Belum ada konten untuk minggu ini</div>
               <div className="edu-empty-sub">
-                {isEditMode ? 'Tambahkan slide pertama untuk mulai mengisi materi minggu ini.' : 'Konten belum tersedia. Hubungi mentor kamu.'}
+                {isEditMode
+                  ? 'Tambahkan slide pertama untuk mulai mengisi materi minggu ini.'
+                  : 'Konten belum tersedia. Hubungi mentor kamu.'}
               </div>
               {isEditMode && (
                 <button className="btn btn-primary" onClick={() => setAddSlideModal(true)} style={{ marginTop: 16 }}>
@@ -677,25 +686,6 @@ function EducationContent() {
           onUnlock={handleWeekUnlock}
           onClose={() => setWeekUnlockModal(null)}
         />
-      )}
-
-      {/* Edit Mode Auth Modal */}
-      {authModal && (
-        <div className="edu-modal-overlay" onClick={() => setAuthModal(false)}>
-          <div className="edu-modal" onClick={e => e.stopPropagation()}>
-            <div className="edu-modal-title">Edit Mode</div>
-            <div className="edu-modal-sub">Masukkan password untuk mengaktifkan edit mode.</div>
-            <input type="password" value={passwordInput} className="edu-modal-input" autoFocus
-              onChange={e => { setPasswordInput(e.target.value); setPasswordError(''); }}
-              onKeyDown={e => e.key === 'Enter' && confirmAuth()}
-              placeholder="Password..." />
-            {passwordError && <div className="edu-modal-error">{passwordError}</div>}
-            <div className="edu-modal-actions">
-              <button className="btn btn-secondary" onClick={() => setAuthModal(false)}>Batal</button>
-              <button className="btn btn-primary" onClick={confirmAuth}>Masuk</button>
-            </div>
-          </div>
-        </div>
       )}
 
       {/* Add Slide Modal */}
