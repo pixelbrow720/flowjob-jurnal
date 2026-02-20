@@ -15,6 +15,7 @@ const navItems = [
   { path: '/calendar',      label: 'Calendar P&L',   icon: `${PUB}/calendar.png` },
   { path: '/risk',          label: 'Trading Rules',  icon: `${PUB}/balance.png` },
   { path: '/education',     label: 'Education',      icon: `${PUB}/book.png` },
+  { path: '/profile',       label: 'My Profile',     icon: `${PUB}/user.png` },
 ];
 
 const DISCORD_URL = 'https://discord.com/invite/SjtNdPvPTZ';

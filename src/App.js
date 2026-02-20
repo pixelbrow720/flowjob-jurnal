@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { HashRouter as Router, Routes, Route } from 'react-router-dom';
 import TitleBar from './components/TitleBar';
 import Sidebar from './components/Sidebar';
@@ -11,10 +11,27 @@ import CalendarPnL from './pages/CalendarPnL';
 import TradingRules from './pages/TradingRules';
 import DailyJournal from './pages/DailyJournal';
 import Education from './pages/Education';
+import Profile from './pages/Profile';
 import ErrorBoundary from './components/ErrorBoundary';
 import './App.css';
 
+const { ipcRenderer } = window.require('electron');
+
 function App() {
+  useEffect(() => {
+    ipcRenderer.invoke('get-setting', 'user_profile').then((raw) => {
+      if (raw) {
+        try {
+          const p = JSON.parse(raw);
+          if (p.accentColor) {
+            document.documentElement.style.setProperty('--accent-primary', p.accentColor);
+            document.documentElement.style.setProperty('--profit-color', p.accentColor);
+          }
+        } catch (e) {}
+      }
+    });
+  }, []);
+
   return (
     <Router>
       <div className="app">
@@ -33,6 +50,7 @@ function App() {
                 <Route path="/calendar" element={<CalendarPnL />} />
                 <Route path="/risk" element={<TradingRules />} />
                 <Route path="/education" element={<Education />} />
+                <Route path="/profile" element={<Profile />} />
               </Routes>
             </ErrorBoundary>
           </main>
