@@ -2,20 +2,22 @@ import React, { useState, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import './Sidebar.css';
 
-const { ipcRenderer } = window.require('electron');
+const { ipcRenderer, shell } = window.require('electron');
 const PUB = process.env.PUBLIC_URL;
 
 const navItems = [
-  { path: '/',          label: 'Dashboard',      icon: `${PUB}/graph-bar.png` },
-  { path: '/accounts',  label: 'Accounts',       icon: `${PUB}/briefcase.png` },
-  { path: '/models',    label: 'Trading Models', icon: `${PUB}/target.png` },
-  { path: '/journal',   label: 'Trade Journal',  icon: `${PUB}/book.png` },
-  { path: '/daily-journal', label: 'Daily Journal', icon: `${PUB}/pencil.png` },
-  { path: '/analytics', label: 'Analytics',      icon: `${PUB}/a.png` },
-  { path: '/calendar',  label: 'Calendar P&L',   icon: `${PUB}/calendar.png` },
-  { path: '/risk',      label: 'Trading Rules',  icon: `${PUB}/balance.png` },
-  { path: '/education', label: 'Education',      icon: `${PUB}/book.png` },
+  { path: '/',              label: 'Dashboard',      icon: `${PUB}/graph-bar.png` },
+  { path: '/accounts',      label: 'Accounts',       icon: `${PUB}/briefcase.png` },
+  { path: '/models',        label: 'Trading Models', icon: `${PUB}/target.png` },
+  { path: '/journal',       label: 'Trade Journal',  icon: `${PUB}/book.png` },
+  { path: '/daily-journal', label: 'Daily Journal',  icon: `${PUB}/pencil.png` },
+  { path: '/analytics',     label: 'Analytics',      icon: `${PUB}/a.png` },
+  { path: '/calendar',      label: 'Calendar P&L',   icon: `${PUB}/calendar.png` },
+  { path: '/risk',          label: 'Trading Rules',  icon: `${PUB}/balance.png` },
+  { path: '/education',     label: 'Education',      icon: `${PUB}/book.png` },
 ];
+
+const DISCORD_URL = 'https://discord.com/invite/SjtNdPvPTZ';
 
 function Sidebar() {
   const [stats, setStats] = useState(null);
@@ -40,6 +42,10 @@ function Sidebar() {
     : '—';
   const plClass = stats ? (stats.totalPL >= 0 ? 'positive' : 'negative') : '';
 
+  const handleDiscord = () => {
+    shell.openExternal(DISCORD_URL);
+  };
+
   return (
     <aside className="sidebar">
       <nav className="sidebar-nav">
@@ -57,6 +63,20 @@ function Sidebar() {
             <div className="nav-indicator" />
           </NavLink>
         ))}
+
+        {/* ── Discord ── */}
+        <div className="discord-divider" />
+        <button className="nav-item discord-nav-item" onClick={handleDiscord}>
+          <span className="nav-icon discord-icon-wrap">
+            <img
+              src={`${PUB}/discord.png`}
+              alt="Discord"
+              className="nav-icon-img discord-icon-img"
+            />
+          </span>
+          <span className="nav-label">Discord Community</span>
+          <span className="discord-badge">JOIN</span>
+        </button>
       </nav>
 
       <div className="sidebar-footer">

@@ -147,3 +147,118 @@
 .footer-stat-val.negative { color: var(--loss-color); }
 
 @media (max-width: 1024px) { .sidebar { width: 220px; } }
+
+/* ── Discord Section ───────────────────────────── */
+
+.discord-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--border-color), transparent);
+  margin: 10px 4px;
+  opacity: 0.6;
+}
+
+.discord-nav-item {
+  /* reset button defaults */
+  background: transparent;
+  border: 1px solid transparent;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 500;
+
+  /* match .nav-item look */
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 14px;
+  border-radius: 10px;
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition: all var(--transition-base);
+  position: relative;
+  overflow: hidden;
+
+  /* subtle discord purple tint on idle */
+  background: rgba(88, 101, 242, 0.04);
+  border-color: rgba(88, 101, 242, 0.12);
+}
+
+.discord-nav-item::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: #5865F2;
+  border-radius: 0 3px 3px 0;
+  transform: translateX(-100%);
+  transition: transform var(--transition-base);
+}
+
+.discord-nav-item:hover {
+  background: rgba(88, 101, 242, 0.12);
+  border-color: rgba(88, 101, 242, 0.3);
+  color: #fff;
+  transform: translateX(3px);
+  box-shadow: 0 0 14px rgba(88, 101, 242, 0.15);
+}
+
+.discord-nav-item:hover::before {
+  transform: translateX(0);
+}
+
+/* icon override — Discord icon is black, need to show it white/purple */
+.discord-icon-img {
+  filter: invert(1) brightness(0.6) !important;
+  transition: filter var(--transition-fast) !important;
+}
+
+.discord-nav-item:hover .discord-icon-img {
+  filter: invert(40%) sepia(80%) saturate(600%) hue-rotate(210deg) brightness(1.2) !important;
+}
+
+/* glowing pulse icon wrapper */
+.discord-icon-wrap {
+  position: relative;
+}
+
+.discord-icon-wrap::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(88,101,242,0.25), transparent 70%);
+  animation: discordPulse 2.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes discordPulse {
+  0%, 100% { opacity: 0.4; transform: scale(0.9); }
+  50%       { opacity: 1;   transform: scale(1.15); }
+}
+
+/* JOIN badge */
+.discord-badge {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: #5865F2;
+  background: rgba(88, 101, 242, 0.15);
+  border: 1px solid rgba(88, 101, 242, 0.3);
+  border-radius: 5px;
+  padding: 2px 7px;
+  flex-shrink: 0;
+  transition: all 0.15s;
+
+  /* soft glow */
+  box-shadow: 0 0 8px rgba(88, 101, 242, 0.2);
+}
+
+.discord-nav-item:hover .discord-badge {
+  background: rgba(88, 101, 242, 0.3);
+  border-color: rgba(88, 101, 242, 0.6);
+  color: #fff;
+  box-shadow: 0 0 12px rgba(88, 101, 242, 0.5);
+}
