@@ -102,14 +102,57 @@ function Dashboard() {
         <div className="page-header">
           <h1 className="page-title">Dashboard</h1>
           <p className="page-subtitle">Welcome to Flowjob Journal</p>
+
+          {/* Account selector tetap muncul walau no data */}
+          {accounts.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 12 }}>
+              <span style={{ fontSize: 13, color: 'var(--text-muted)', fontWeight: 600 }}>Viewing:</span>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <button
+                  onClick={() => setSelectedAccId('')}
+                  style={{
+                    padding: '6px 16px', borderRadius: 8, fontFamily: 'var(--font-display)',
+                    fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                    background: selectedAccId === '' ? '#8670ff' : 'var(--bg-tertiary)',
+                    border: `1px solid ${selectedAccId === '' ? '#8670ff' : 'var(--border-color)'}`,
+                    color: selectedAccId === '' ? '#000' : 'var(--text-secondary)',
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  All Accounts
+                </button>
+                {accounts.map(acc => (
+                  <button
+                    key={acc.id}
+                    onClick={() => setSelectedAccId(String(acc.id))}
+                    style={{
+                      padding: '6px 16px', borderRadius: 8, fontFamily: 'var(--font-display)',
+                      fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                      background: selectedAccId === String(acc.id) ? '#8670ff' : 'var(--bg-tertiary)',
+                      border: `1px solid ${selectedAccId === String(acc.id) ? '#8670ff' : 'var(--border-color)'}`,
+                      color: selectedAccId === String(acc.id) ? '#000' : 'var(--text-secondary)',
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    {acc.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
+
         <div className="empty-state">
           <div style={{ fontSize: 48, marginBottom: 16, opacity: 0.4 }}>
             <img src={`${process.env.PUBLIC_URL}/graph-bar.png`} alt=""
               style={{ width: 56, filter: 'invert(1) brightness(0.4)' }} />
           </div>
           <h3 className="empty-state-title">No trading data yet</h3>
-          <p className="empty-state-description">Create models and log trades to see your dashboard</p>
+          <p className="empty-state-description">
+            {selectedAccId
+              ? 'No trades logged for this account yet.'
+              : 'Create models and log trades to see your dashboard'}
+          </p>
         </div>
       </div>
     );

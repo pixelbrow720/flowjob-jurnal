@@ -538,7 +538,7 @@ export default function Analytics() {
                     <td style={{fontWeight:700,color:'var(--text-primary)'}}>{m.name}</td>
                     <td className="mono">{m.total_trades}</td>
                     <td className={`mono ${m.winRate>=50?'col-profit':'col-loss'}`}>{m.winRate.toFixed(1)}%</td>
-                    <td className={`mono ${m.profitFactor>=1.5?'col-profit':m.profitFactor>=1?'col-warn':'col-loss'}`}>{m.profitFactor.toFixed(2)}</td>
+                    <td className={`mono ${m.profitFactor>=1.5?'col-profit':m.profitFactor>=1?'col-warn':'col-loss'}`}>{m.profitFactor >= 999 ? '∞' : m.profitFactor.toFixed(2)}</td>
                     <td className="mono">{m.avgR!=null?fmtR(m.avgR):'—'}</td>
                     <td className={`mono ${m.expectancy>=0?'col-profit':'col-loss'}`}>{fmtMoney(m.expectancy)}</td>
                     <td className={`mono ${m.totalPL>=0?'col-profit':'col-loss'}`}>{fmtMoney(m.totalPL)}</td>
