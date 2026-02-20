@@ -14,7 +14,7 @@ const C = {
   cardAlt:  [22,  26,  36],    // #16181a
   accent:   [134, 112, 255],   // #8670ff  purple
   loss:     [255,   0, 149],   // #ff0095  pink
-  profit:   [0,   210, 120],   // #00d278  green
+  profit:   [134, 112, 255],   // #8670ff  purple
   warn:     [255, 170,   0],   // #ffaa00
   text:     [232, 237, 243],   // #e8edf3
   subtext:  [140, 155, 175],   // #8c9baf
