@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Icon from '../components/Icon';
 import SLTPInput from '../components/SLTPInput';
-import PDFExportButton from '../components/PDFExportModal';
+import { PDFExportButton } from '../components/PDFExportModal';
 import ConfirmDialog from '../components/ConfirmDialog';
 import './Journal.css';
 
