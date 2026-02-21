@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import './Education.css';
 
 const { ipcRenderer } = window.require('electron');
@@ -36,7 +37,9 @@ function useShake() {
 }
 
 // ─── Entry Gate ───────────────────────────────────────────────────────────────
+// ─── Entry Gate ───────────────────────────────────────────────────────────────
 function EntryGate({ onUnlock }) {
+  const navigate              = useNavigate();   // ← tambah ini
   const [input, setInput]     = useState('');
   const [error, setError]     = useState('');
   const [shake, triggerShake] = useShake();
@@ -71,7 +74,26 @@ function EntryGate({ onUnlock }) {
         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20,
         boxShadow: '0 30px 80px rgba(0,0,0,0.6)',
         animation: 'modalIn 0.22s ease',
+        position: 'relative',   // ← tambah ini
       }}>
+
+        {/* Tombol X kembali ke Dashboard */}
+        <button
+          onClick={() => navigate('/')}
+          style={{
+            position: 'absolute', top: 16, right: 16,
+            width: 32, height: 32, borderRadius: 8,
+            background: 'rgba(255,255,255,0.05)',
+            border: '1px solid var(--border-color)',
+            color: 'var(--text-muted)', cursor: 'pointer',
+            fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            transition: 'all 0.15s',
+          }}
+          onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,0,149,0.1)'}
+          onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
+          title="Kembali ke Dashboard"
+        >×</button>
+
         <div style={{
           width: 64, height: 64, borderRadius: 18,
           background: 'rgba(134,112,255,0.12)',
