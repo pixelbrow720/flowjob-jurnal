@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Icon from '../components/Icon';
+import ConfirmDialog from '../components/ConfirmDialog'; // A1 FIX
 import './Accounts.css';
 
 const { ipcRenderer } = window.require('electron');
@@ -7,11 +8,14 @@ const PROFIT = '#8670ff';
 const LOSS   = '#ff0095';
 
 function Accounts() {
-  const [accounts, setAccounts]     = useState([]);
-  const [trades, setTrades]         = useState([]);
-  const [showModal, setShowModal]   = useState(false);
-  const [editingAcc, setEditingAcc] = useState(null);
-  const [form, setForm]             = useState({ name: '', type: 'custom', initialBalance: 25000, currency: 'USD', description: '' });
+  const [accounts, setAccounts]         = useState([]);
+  const [trades, setTrades]             = useState([]);
+  const [showModal, setShowModal]       = useState(false);
+  const [editingAcc, setEditingAcc]     = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(null); // A1 FIX
+  const [form, setForm]                 = useState({
+    name: '', type: 'custom', initialBalance: 25000, currency: 'USD', description: ''
+  });
 
   useEffect(() => { loadData(); }, []);
 
@@ -27,7 +31,13 @@ function Accounts() {
   const openModal = (acc = null) => {
     if (acc) {
       setEditingAcc(acc);
-      setForm({ name: acc.name, type: acc.type, initialBalance: acc.initial_balance, currency: acc.currency || 'USD', description: acc.description || '' });
+      setForm({
+        name:           acc.name,
+        type:           acc.type,
+        initialBalance: acc.initial_balance,
+        currency:       acc.currency || 'USD',
+        description:    acc.description || '',
+      });
     } else {
       setEditingAcc(null);
       setForm({ name: '', type: 'custom', initialBalance: 25000, currency: 'USD', description: '' });
@@ -46,9 +56,13 @@ function Accounts() {
     setShowModal(false);
   };
 
-  const handleDelete = async (acc) => {
-    if (!window.confirm(`Delete "${acc.name}"? This cannot be undone.`)) return;
-    const result = await ipcRenderer.invoke('delete-account', acc.id);
+  // A1 FIX — pakai ConfirmDialog, bukan window.confirm
+  const handleDelete = (acc) => setConfirmDelete(acc);
+
+  const doDelete = async () => {
+    if (!confirmDelete) return;
+    const result = await ipcRenderer.invoke('delete-account', confirmDelete.id);
+    setConfirmDelete(null);
     if (result?.error) {
       alert(result.error);
     } else {
@@ -56,7 +70,7 @@ function Accounts() {
     }
   };
 
-  // Per-account stats
+  // Per-account stats dihitung dari trades
   const statsFor = (accId) => {
     const t = trades.filter(x => x.account_id === accId);
     if (!t.length) return null;
@@ -86,8 +100,11 @@ function Accounts() {
         {accounts.map(acc => {
           const stats    = statsFor(acc.id);
           const pl       = stats?.pl ?? 0;
-          const current  = acc.current_balance ?? acc.initial_balance ?? 0;
           const initial  = acc.initial_balance ?? 0;
+
+          // A2 FIX — recompute current balance dari initial + sum trades
+          // supaya tidak drift dari current_balance di DB
+          const current   = initial + pl;
           const growthPct = initial > 0 ? ((current - initial) / initial) * 100 : 0;
           const fillPct   = initial > 0 ? Math.min(Math.abs(growthPct) / 20 * 100, 100) : 0;
 
@@ -140,8 +157,10 @@ function Accounts() {
               </div>
 
               {/* P&L row */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                padding: '12px 0', borderTop: '1px solid var(--border-color)', marginTop: 4 }}>
+              <div style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                padding: '12px 0', borderTop: '1px solid var(--border-color)', marginTop: 4,
+              }}>
                 <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.4px' }}>Total P&L</span>
                 <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, fontSize: 18, color: pl >= 0 ? PROFIT : LOSS }}>
                   {pl >= 0 ? '+' : ''}${pl.toFixed(2)}
@@ -172,7 +191,7 @@ function Accounts() {
         })}
       </div>
 
-      {/* Modal */}
+      {/* Create / Edit Modal */}
       {showModal && (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
           <div className="modal account-modal" onClick={e => e.stopPropagation()}>
@@ -185,9 +204,12 @@ function Accounts() {
             <div style={{ padding: 24 }}>
               <div className="form-group">
                 <label>Account Name *</label>
-                <input type="text" value={form.name}
+                <input
+                  type="text"
+                  value={form.name}
                   onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-                  placeholder="e.g. Apex Funded Account" />
+                  placeholder="e.g. Apex Funded Account"
+                />
               </div>
 
               {!editingAcc && (
@@ -214,8 +236,11 @@ function Accounts() {
               {!editingAcc && (
                 <div className="form-group">
                   <label>Starting Balance</label>
-                  <input type="number" value={form.initialBalance}
-                    onChange={e => setForm(f => ({ ...f, initialBalance: parseFloat(e.target.value) || 0 }))} />
+                  <input
+                    type="number"
+                    value={form.initialBalance}
+                    onChange={e => setForm(f => ({ ...f, initialBalance: parseFloat(e.target.value) || 0 }))}
+                  />
                   <div className="balance-display" style={{ marginTop: 10 }}>
                     ${parseFloat(form.initialBalance || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                   </div>
@@ -224,10 +249,12 @@ function Accounts() {
 
               <div className="form-group">
                 <label>Description</label>
-                <textarea value={form.description}
+                <textarea
+                  value={form.description}
                   onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
                   placeholder="Optional notes about this account..."
-                  rows={3} />
+                  rows={3}
+                />
               </div>
 
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
@@ -240,6 +267,17 @@ function Accounts() {
           </div>
         </div>
       )}
+
+      {/* A1 FIX — ConfirmDialog menggantikan window.confirm */}
+      <ConfirmDialog
+        isOpen={!!confirmDelete}
+        title="Delete Account"
+        message={`"${confirmDelete?.name}" akan dihapus permanen. Semua trade di akun ini tetap tersimpan tapi tidak terasosiasi ke akun manapun. This cannot be undone.`}
+        confirmLabel="Delete"
+        danger
+        onConfirm={doDelete}
+        onCancel={() => setConfirmDelete(null)}
+      />
     </div>
   );
 }

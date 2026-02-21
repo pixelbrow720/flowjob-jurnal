@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Icon from '../components/Icon';
+import ConfirmDialog from '../components/ConfirmDialog';
 
 const { ipcRenderer } = window.require('electron');
 const PROFIT = '#8670ff';
@@ -8,12 +9,19 @@ const WARN = '#ffaa00';
 
 function DailyJournal() {
   const [entries, setEntries] = useState([]);
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+
+  // ── FIX DJ2: Pakai local date bukan toISOString() — fix UTC+7 bug ──
+  const _d = new Date();
+  const localToday = `${_d.getFullYear()}-${String(_d.getMonth()+1).padStart(2,'0')}-${String(_d.getDate()).padStart(2,'0')}`;
+  const [selectedDate, setSelectedDate] = useState(localToday);
+
   const [entry, setEntry] = useState(null);
   const [editMode, setEditMode] = useState(false);
   const [activeTab, setActiveTab] = useState('pre');
-  const [saving, setSaving] = useState(false);   // FIX: save feedback state
-  const [saveMsg, setSaveMsg] = useState('');     // FIX: success/error message
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState('');
+  // ── FIX DJ1: State untuk ConfirmDialog delete ──
+  const [confirmDeleteEntry, setConfirmDeleteEntry] = useState(false);
 
   useEffect(() => {
     loadEntries();
@@ -59,9 +67,6 @@ function DailyJournal() {
     }
   };
 
-  // FIX 1: saveEntry now calls loadEntry after save so entry.id is populated
-  //         and Edit/Delete buttons become visible. Also adds error handling
-  //         and save feedback so user knows save worked.
   const saveEntry = async () => {
     if (!entry) return;
     setSaving(true);
@@ -69,7 +74,6 @@ function DailyJournal() {
     try {
       await ipcRenderer.invoke('save-daily-journal', entry);
       await loadEntries();
-      // FIX: reload the entry from DB so entry.id is set → Edit/Delete buttons appear
       await loadEntry(selectedDate);
       setSaveMsg('Saved!');
       setTimeout(() => setSaveMsg(''), 2000);
@@ -80,18 +84,18 @@ function DailyJournal() {
     }
   };
 
-  const deleteEntry = async () => {
-    if (window.confirm('Delete this journal entry?')) {
-      await ipcRenderer.invoke('delete-daily-journal', selectedDate);
-      loadEntries();
-      loadEntry(selectedDate);
-    }
+  // ── FIX DJ1: deleteEntry sekarang pakai ConfirmDialog, bukan window.confirm ──
+  const deleteEntry = () => {
+    setConfirmDeleteEntry(true);
   };
 
-  // FIX 2: updateField uses functional state updater to avoid stale closure.
-  //         Previously `setEntry({ ...entry, [field]: value })` would capture
-  //         the old `entry` from the closure, causing fields to overwrite each
-  //         other when updated in quick succession.
+  const doDeleteEntry = async () => {
+    await ipcRenderer.invoke('delete-daily-journal', selectedDate);
+    setConfirmDeleteEntry(false);
+    loadEntries();
+    loadEntry(selectedDate);
+  };
+
   const updateField = useCallback((field, value) => {
     setEntry(prev => ({ ...prev, [field]: value }));
   }, []);
@@ -116,7 +120,10 @@ function DailyJournal() {
     else break;
   }
 
-  const recentDates = entries.slice(0, 10);
+  // ── FIX DJ3: Sort descending by date sebelum slice ──
+  const recentDates = [...entries]
+    .sort((a, b) => new Date(b.date) - new Date(a.date))
+    .slice(0, 10);
 
   return (
     <div className="fade-in">
@@ -239,7 +246,6 @@ function DailyJournal() {
                   </p>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  {/* FIX: Save feedback message */}
                   {saveMsg && (
                     <span style={{
                       fontSize: 13, fontWeight: 600,
@@ -433,6 +439,17 @@ function DailyJournal() {
           </div>
         </div>
       </div>
+
+      {/* ── FIX DJ1: ConfirmDialog untuk delete entry ── */}
+      <ConfirmDialog
+        isOpen={confirmDeleteEntry}
+        title="Delete Journal Entry"
+        message={`Delete journal entry for ${selectedDate}? This cannot be undone.`}
+        confirmLabel="Delete"
+        danger
+        onConfirm={doDeleteEntry}
+        onCancel={() => setConfirmDeleteEntry(false)}
+      />
     </div>
   );
 }

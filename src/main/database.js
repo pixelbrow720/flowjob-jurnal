@@ -418,6 +418,8 @@ class DatabaseManager {
   }
 
   deleteModel(id) {
+    // Null-kan referensi di trades dulu sebelum hapus
+    this.db.prepare('UPDATE trades SET model_id = NULL WHERE model_id = ?').run(id);
     return this.db.prepare('DELETE FROM models WHERE id = ?').run(id);
   }
 

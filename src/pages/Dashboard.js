@@ -72,18 +72,24 @@ function Dashboard() {
         ? (selectedAcc.initial_balance || 25000)
         : (accs || []).reduce((sum, a) => sum + (a.initial_balance || 25000), 0);
 
-      let cum = startingBalance; // ← Start from initial_balance, not 0
-      const curve = [...(trades || [])]
-        .sort((a, b) => new Date(a.date) - new Date(b.date))
-        .map(t => {
-          cum += t.net_pl;
-          return {
-            date: new Date(t.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-            equity: parseFloat(cum.toFixed(2))
-          };
-        });
+      let cum = startingBalance;
+      const sortedTrades = [...(trades || [])].sort((a, b) => new Date(a.date) - new Date(b.date));
 
-      // Prepend starting point if there are trades
+      // Group per hari dulu — satu titik per tanggal
+      const byDay = {};
+      sortedTrades.forEach(t => {
+        if (!byDay[t.date]) byDay[t.date] = 0;
+        byDay[t.date] += t.net_pl;
+      });
+
+      const curve = Object.entries(byDay).map(([date, dayPL]) => {
+        cum += dayPL;
+        return {
+          date: new Date(date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+          equity: parseFloat(cum.toFixed(2)),
+        };
+      });
+
       if (curve.length > 0) {
         curve.unshift({ date: 'Start', equity: startingBalance });
       }

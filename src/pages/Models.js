@@ -32,10 +32,15 @@ function Models() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const cleanedData = {
+      ...formData,
+      timeframes: formData.timeframes.filter(tf => tf.value.trim() !== ''),
+      confluenceChecklist: formData.confluenceChecklist.filter(item => item.trim() !== ''),
+    };
     if (editingModel) {
-      await ipcRenderer.invoke('update-model', editingModel.id, formData);
+      await ipcRenderer.invoke('update-model', editingModel.id, cleanedData);
     } else {
-      await ipcRenderer.invoke('create-model', formData);
+      await ipcRenderer.invoke('create-model', cleanedData);
     }
     loadModels();
     closeModal();
@@ -102,7 +107,7 @@ function Models() {
     setShowModal(true);
   };
 
-  const closeModal = () => { setShowModal(false); setEditingModel(null); };
+  const closeModal = () => { setShowModal(false); setEditingModel(null); setZoomImage(null); };
 
   // ── Timeframes ──────────────────────────────────────────────────────────
   const addTimeframe = () => {

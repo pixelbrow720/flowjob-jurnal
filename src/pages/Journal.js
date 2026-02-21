@@ -58,6 +58,7 @@ function calcRMultiple(slPoints, tpPoints, outcome) {
   }
   return -1;
 }
+
 const defaultForm = () => {
   const _d = new Date();
   const localDate = `${_d.getFullYear()}-${String(_d.getMonth() + 1).padStart(2, '0')}-${String(_d.getDate()).padStart(2, '0')}`;
@@ -84,7 +85,7 @@ const defaultForm = () => {
     tradeGrade:        'B',
     screenshotBefore:  '',
     screenshotAfter:   '',
-    _netPLManual:      false, // tracking flag: apakah user sudah input manual
+    _netPLManual:      false,
   };
 };
 
@@ -142,7 +143,7 @@ function Journal() {
         if (dayTrades.length >= rules.maxTradesPerDay) violated = true;
       }
 
-      // BUG FIX #1: Cek maxLossPerTrade — kalau loss trade ini melebihi batas
+      // Cek maxLossPerTrade
       if (!violated && rules.maxLossPerTrade > 0) {
         const currentNetPL = parseFloat(formData.netPL);
         if (!isNaN(currentNetPL) && currentNetPL < 0 && Math.abs(currentNetPL) > rules.maxLossPerTrade) {
@@ -150,7 +151,7 @@ function Journal() {
         }
       }
 
-      // BUG FIX #1: Cek maxLossPerDay — jumlah total loss hari ini
+      // Cek maxLossPerDay
       if (!violated && rules.maxLossPerDay > 0) {
         const dayTrades = trades.filter(t =>
           t.date === formData.date &&
@@ -162,10 +163,8 @@ function Journal() {
         if ((dayPL + thisTradePL) <= -rules.maxLossPerDay) violated = true;
       }
 
-      // Hanya set violated jika memang ada pelanggaran (tidak clear manual override)
-      if (violated) {
-        setFormData(prev => ({ ...prev, ruleViolation: violated }));
-      }
+      // ── FIX J1: Selalu update ruleViolation, baik true maupun false ──
+      setFormData(prev => ({ ...prev, ruleViolation: violated }));
     } catch (e) {
       // Silent fail
     }
@@ -189,17 +188,13 @@ function Journal() {
     setTrades(tradesList || []);
   };
 
-  // BUG FIX #2: recalculate sekarang TIDAK menimpa netPL kalau user sudah input manual
-  // Flag _netPLManual diset true ketika user mengetik di field netPL secara langsung
   const recalculate = useCallback((data) => {
     if (data.pair && data.slPoints && data.positionSize) {
       const rMultiple = calcRMultiple(data.slPoints, data.tpPoints, data.outcome);
-      // Hanya auto-kalkulasi netPL jika user BELUM input manual
       if (!data._netPLManual) {
         const netPL = calcNetPL(data.pair, data.slPoints, data.tpPoints, data.positionSize, data.outcome);
         return { ...data, netPL, rMultiple: rMultiple !== null ? rMultiple : '' };
       }
-      // Kalau sudah manual, hanya update R-multiple saja
       return { ...data, rMultiple: rMultiple !== null ? rMultiple : '' };
     }
     return data;
@@ -210,12 +205,11 @@ function Journal() {
     setFormData(recalculate(next));
   };
 
-  // Handler khusus untuk perubahan netPL manual oleh user
   const handleNetPLManualChange = (val) => {
     setFormData(prev => ({
       ...prev,
       netPL: val,
-      _netPLManual: val !== '', // kalau dikosongkan lagi, kembali ke auto
+      _netPLManual: val !== '',
     }));
   };
 
@@ -223,52 +217,43 @@ function Journal() {
     if (!formData.pair)       { alert('Please select an instrument.'); return; }
     if (!formData.entryPrice  || isNaN(parseFloat(formData.entryPrice))) { alert('Please enter a valid entry price.'); return; }
     if (!formData.slPoints    || isNaN(parseFloat(formData.slPoints)) || parseFloat(formData.slPoints) <= 0) { alert('Please enter a valid stop loss (in points).'); return; }
+    if (!formData.accountId)  { alert('Please select a trading account.'); return; }
 
-    const slPts = parseFloat(formData.slPoints) || 0;
-    const tpPts = formData.tpPoints ? parseFloat(formData.tpPoints) : 0;
-    const size  = parseInt(formData.positionSize) || 1;
-
-    const finalNetPL = formData.netPL !== '' && !isNaN(parseFloat(formData.netPL))
-      ? parseFloat(formData.netPL)
-      : calcNetPL(formData.pair, slPts, tpPts, size, formData.outcome);
-    const finalR = calcRMultiple(slPts, tpPts, formData.outcome);
-
-    const tradeData = {
-      date:              formData.date,
-      entryTime:         formData.entryTime || null,
-      accountId:         formData.accountId  ? parseInt(formData.accountId)  : null,
-      modelId:           formData.modelId    ? parseInt(formData.modelId)    : null,
-      pair:              formData.pair,
-      direction:         formData.direction,
-      entryPrice:        parseFloat(formData.entryPrice) || 0,
-      slPoints:          slPts,
-      tpPoints:          tpPts || null,
-      positionSize:      size,
-      outcome:           formData.outcome,
-      netPL:             finalNetPL,
-      rMultiple:         finalR,
-      notes:             formData.notes || null,
-      emotionalState:    formData.emotionalState || null,
-      mistakeTag:        formData.mistakeTag || null,
-      ruleViolation:     formData.ruleViolation ? 1 : 0,
-      setupQualityScore: parseInt(formData.setupQualityScore) || null,
-      disciplineScore:   parseInt(formData.disciplineScore) || null,
-      tradeGrade:        formData.tradeGrade || null,
-      screenshotBefore:  formData.screenshotBefore || null,
-      screenshotAfter:   formData.screenshotAfter  || null,
+    const payload = {
+      date:               formData.date,
+      entry_time:         formData.entryTime,
+      account_id:         formData.accountId || null,
+      model_id:           formData.modelId   || null,
+      pair:               formData.pair,
+      direction:          formData.direction,
+      entry_price:        parseFloat(formData.entryPrice),
+      sl_points:          parseFloat(formData.slPoints),
+      tp_points:          formData.tpPoints  ? parseFloat(formData.tpPoints) : null,
+      position_size:      parseInt(formData.positionSize) || 1,
+      outcome:            formData.outcome,
+      net_pl:             parseFloat(formData.netPL) || 0,
+      r_multiple:         formData.rMultiple !== '' ? parseFloat(formData.rMultiple) : null,
+      notes:              formData.notes,
+      emotional_state:    formData.emotionalState,
+      mistake_tag:        formData.mistakeTag,
+      rule_violation:     formData.ruleViolation ? 1 : 0,
+      setup_quality_score: parseInt(formData.setupQualityScore) || 5,
+      discipline_score:   parseInt(formData.disciplineScore)    || 5,
+      trade_grade:        formData.tradeGrade,
+      screenshot_before:  formData.screenshotBefore || null,
+      screenshot_after:   formData.screenshotAfter  || null,
     };
 
     try {
       if (editingTrade) {
-        await ipcRenderer.invoke('update-trade', editingTrade.id, tradeData);
+        await ipcRenderer.invoke('update-trade', editingTrade.id, payload);
       } else {
-        await ipcRenderer.invoke('create-trade', tradeData);
+        await ipcRenderer.invoke('create-trade', payload);
       }
       loadData();
       closeModal();
     } catch (err) {
-      console.error('Save trade error:', err);
-      alert('Error saving trade: ' + (err.message || 'Unknown error. Check console.'));
+      alert('Failed to save trade. Check console.');
     }
   };
 
@@ -307,7 +292,7 @@ function Journal() {
         tradeGrade:        trade.trade_grade || 'B',
         screenshotBefore:  trade.screenshot_before || '',
         screenshotAfter:   trade.screenshot_after  || '',
-        _netPLManual:      true, // saat edit, anggap nilai P&L sudah "manual" (dari DB)
+        _netPLManual:      true,
       };
       setFormData(fd);
     } else {
@@ -319,7 +304,8 @@ function Journal() {
     setShowModal(true);
   };
 
-  const closeModal = () => { setShowModal(false); setEditingTrade(null); };
+  // ── FIX J2: closeModal sekarang juga reset zoomImage ──
+  const closeModal = () => { setShowModal(false); setEditingTrade(null); setZoomImage(null); };
 
   const handleSelectScreenshot = async (field) => {
     const filePath = await ipcRenderer.invoke('select-file');
@@ -338,7 +324,18 @@ function Journal() {
         <p className="page-subtitle">Log and review your trades</p>
         <div className="page-actions">
           <button className="btn btn-primary" onClick={() => openModal()}>+ New Trade</button>
-          <button className="btn btn-secondary" onClick={() => ipcRenderer.invoke('export-csv')}>
+          {/* ── FIX J3: Export CSV sekarang pass filter aktif ── */}
+          <button
+            className="btn btn-secondary"
+            onClick={() => {
+              const fp = {};
+              if (filters.modelId)   fp.modelId   = parseInt(filters.modelId);
+              if (filters.accountId) fp.accountId = parseInt(filters.accountId);
+              if (filters.startDate) fp.startDate = filters.startDate;
+              if (filters.endDate)   fp.endDate   = filters.endDate;
+              ipcRenderer.invoke('export-csv', fp);
+            }}
+          >
             <Icon name="analytics" size={14} style={{ marginRight: 6 }} /> Export CSV
           </button>
           <PDFExportButton label="Export PDF" />
@@ -517,16 +514,20 @@ function Journal() {
                 </div>
               )}
 
+              {/* Point value info */}
+              <div className="point-value-info">
+                <span>{formData.pair}</span>
+                <span>Point Value: ${pointValue.toLocaleString()} / point</span>
+              </div>
+
               {/* Row 2: Instrument, Direction */}
-              <div className="form-row">
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16, marginBottom: 16 }}>
                 <div className="form-group">
                   <label>Instrument *</label>
-                  <select value={formData.pair} onChange={e => updateForm({ pair: e.target.value })} required>
-                    {Object.entries(INSTRUMENTS).map(([group, items]) => (
+                  <select value={formData.pair} onChange={e => updateForm({ pair: e.target.value })}>
+                    {Object.entries(INSTRUMENTS).map(([group, instruments]) => (
                       <optgroup key={group} label={group}>
-                        {items.map(inst => (
-                          <option key={inst} value={inst}>{inst}</option>
-                        ))}
+                        {instruments.map(i => <option key={i} value={i}>{i}</option>)}
                       </optgroup>
                     ))}
                   </select>
@@ -540,95 +541,58 @@ function Journal() {
                 </div>
               </div>
 
-              {/* Point value info */}
-              <div className="point-value-info">
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                  <Icon name="target" size={13} color="muted" /> {formData.pair}
-                </span>
-                <span>Point Value: <strong className="profit">${pointValue}/pt</strong> per contract</span>
-              </div>
-
-              {/* Row 3: Entry, SL (pts), TP (pts) */}
-              <div className="form-row-3">
+              {/* Row 3: Entry Price, Position Size */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
                 <div className="form-group">
                   <label>Entry Price *</label>
                   <input
-                    type="number" step="any"
+                    type="number" step="0.25"
                     value={formData.entryPrice}
                     onChange={e => updateForm({ entryPrice: e.target.value })}
-                    required placeholder="e.g. 5500"
+                    placeholder="e.g. 5250.25"
                   />
                 </div>
                 <div className="form-group">
-                  <label>Stop Loss (points) *</label>
+                  <label>Position Size (Contracts)</label>
                   <input
-                    type="number" step="any" min="0"
-                    value={formData.slPoints}
-                    onChange={e => updateForm({ slPoints: e.target.value })}
-                    required placeholder="e.g. 5"
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Take Profit (points)</label>
-                  <input
-                    type="number" step="any" min="0"
-                    value={formData.tpPoints}
-                    onChange={e => updateForm({ tpPoints: e.target.value })}
-                    placeholder="e.g. 15"
-                  />
-                </div>
-              </div>
-
-              {/* Row 4: Position Size, Outcome */}
-              <div className="form-row">
-                <div className="form-group">
-                  <label>Position Size (contracts) *</label>
-                  <input
-                    type="number" min="1" max="10"
+                    type="number" min="1"
                     value={formData.positionSize}
                     onChange={e => updateForm({ positionSize: e.target.value })}
-                    required
                   />
-                </div>
-                <div className="form-group">
-                  <label>Outcome *</label>
-                  <div className="outcome-toggle">
-                    <button
-                      type="button"
-                      className={`outcome-btn win ${formData.outcome === 'win' ? 'active' : ''}`}
-                      onClick={() => updateForm({ outcome: 'win' })}
-                    >
-                      <Icon name="equity" size={14} style={{ marginRight: 5 }} /> WIN
-                    </button>
-                    <button
-                      type="button"
-                      className={`outcome-btn be ${formData.outcome === 'breakeven' ? 'active' : ''}`}
-                      onClick={() => updateForm({ outcome: 'breakeven' })}
-                    >
-                      BE
-                    </button>
-                    <button
-                      type="button"
-                      className={`outcome-btn loss ${formData.outcome === 'loss' ? 'active' : ''}`}
-                      onClick={() => updateForm({ outcome: 'loss' })}
-                    >
-                      <Icon name="drawdown" size={14} style={{ marginRight: 5 }} /> LOSS
-                    </button>
-                  </div>
                 </div>
               </div>
 
-              {/* Auto-calculated P&L display */}
+              {/* SL / TP */}
+              <SLTPInput
+                slValue={formData.slPoints}
+                tpValue={formData.tpPoints}
+                slMode={formData.slMode || 'points'}
+                onSlChange={v => updateForm({ slPoints: v })}
+                onTpChange={v => updateForm({ tpPoints: v })}
+                onModeChange={m => updateForm({ slMode: m })}
+                entryPrice={parseFloat(formData.entryPrice)}
+                direction={formData.direction}
+              />
+
+              {/* Outcome */}
+              <div className="form-group" style={{ marginBottom: 16 }}>
+                <label>Outcome *</label>
+                <select value={formData.outcome} onChange={e => updateForm({ outcome: e.target.value })}>
+                  <option value="win">Win</option>
+                  <option value="loss">Loss</option>
+                  <option value="breakeven">Breakeven</option>
+                </select>
+              </div>
+
+              {/* P&L Display Row */}
               <div className="pnl-display-row">
                 <div className="pnl-display-item">
                   <span className="pnl-display-label">R-Multiple</span>
-                  <span className={`pnl-display-value ${parseFloat(formData.rMultiple) >= 0 ? 'profit' : 'loss'}`}>
+                  <span className={`pnl-display-value ${parseFloat(formData.rMultiple) >= 0 ? 'profit' : 'loss'}`} style={{ fontSize: 18 }}>
                     {formData.rMultiple !== '' ? `${parseFloat(formData.rMultiple) > 0 ? '+' : ''}${formData.rMultiple}R` : '—'}
                   </span>
                 </div>
                 <div className="pnl-display-item pnl-main">
-                  {/* BUG FIX #2: Net P&L field sekarang punya onChange sendiri supaya
-                      tidak ditimpa oleh auto-kalkulasi ketika user input manual */}
                   <span className="pnl-display-label">
                     Net P&L {formData._netPLManual ? '(Manual)' : '(Auto)'}
                   </span>

@@ -119,7 +119,6 @@ export default function Analytics() {
   const [models,   setModels]   = useState([]);
   const [filters,  setFilters]  = useState({ accountId:'', startDate:'', endDate:'' });
   const [loading,  setLoading]  = useState(true);
-  
 
   useEffect(() => { load(); }, [filters]); // eslint-disable-line
 
@@ -143,18 +142,20 @@ export default function Analytics() {
   };
 
   /* computed */
-  const S         = useMemo(() => calcStats(trades),        [trades]);
+  const S = useMemo(() => calcStats(trades), [trades]);
+
   const startingBalance = useMemo(() => {
     if (!accounts.length) return 0;
     if (filters.accountId) {
       const acc = accounts.find(a => a.id === parseInt(filters.accountId));
       return acc ? (acc.initial_balance || 25000) : 0;
     }
-    // Semua akun: jumlahkan semua initial_balance
     return accounts.reduce((sum, a) => sum + (a.initial_balance || 25000), 0);
   }, [accounts, filters.accountId]);
-  const equity = useMemo(() => buildEquity(trades, startingBalance), [trades, startingBalance]);
-  const dd        = useMemo(() => buildDrawdown(trades),    [trades]);
+
+  // ── FIX: pass startingBalance to both buildEquity and buildDrawdown ──
+  const equity    = useMemo(() => buildEquity(trades, startingBalance),    [trades, startingBalance]);
+  const dd        = useMemo(() => buildDrawdown(trades, startingBalance),  [trades, startingBalance]);
   const monthly   = useMemo(() => buildMonthly(trades),     [trades]);
   const dow       = useMemo(() => buildDow(trades),         [trades]);
   const rDist     = useMemo(() => buildRDist(trades),       [trades]);
@@ -269,8 +270,8 @@ export default function Analytics() {
                 <CartesianGrid {...GRID_P} />
                 <XAxis dataKey="l" tick={TICK} tickLine={false} axisLine={false} interval="preserveStartEnd" />
                 <YAxis tick={TICK} tickLine={false} axisLine={false} tickFormatter={fmtK} />
-                <Tooltip content={<Tip fmt={fmtMoney} />} cursor={{stroke:'#2a2a3a',strokeWidth:1}} />
-                <ReferenceLine y={0} stroke="#2a2a3a" strokeDasharray="4 4" />
+                <Tooltip content={<Tip fmt={fmtK} />} cursor={{stroke:'#2a2a3a',strokeWidth:1}} />
+                <ReferenceLine y={startingBalance > 0 ? startingBalance : 0} stroke="#2a2a3a" strokeDasharray="4 4" />
                 <Area type="monotone" dataKey="eq" stroke="none" fill="url(#gProfit)" dot={false} activeDot={false} />
                 <Line type="monotone" dataKey="eq" stroke={C.profit} strokeWidth={2.5}
                   dot={false} activeDot={{r:5,fill:C.profit,stroke:'#000',strokeWidth:2}} />
@@ -531,7 +532,7 @@ export default function Analytics() {
           </div>
           <div className="a-table-wrap">
             <table className="a-table">
-              <thead><tr><th>Model</th><th>Trades</th><th>Win Rate</th><th>P. Factor</th><th>Avg R</th><th>Expectancy</th><th>Net P/L</th></tr></thead>
+              <thead><tr><th>Model</th><th>Trades</th><th>Win Rate</th><th>P.Factor</th><th>Avg R</th><th>Expectancy</th><th>Net P/L</th></tr></thead>
               <tbody>
                 {mperf.map(m=>(
                   <tr key={m.id}>
@@ -573,7 +574,7 @@ export default function Analytics() {
               <BarChart data={grades.filter(g=>g.count>0)} margin={MAR} barCategoryGap="28%">
                 <CartesianGrid {...GRID_P} />
                 <XAxis dataKey="grade" tick={TICK} tickLine={false} axisLine={false} />
-                <YAxis tick={TICK} tickLine={false} axisLine={false} tickFormatter={v=>`${v>=0?'+':''}$${Math.abs(v).toFixed(0)}`} />
+                <YAxis tick={TICK} tickLine={false} axisLine={false} tickFormatter={v=>`${v>=0?'':'-'}$${Math.abs(v).toFixed(0)}`} />
                 <Tooltip content={<Tip fmt={fmtMoney} />} cursor={{fill:'rgba(255,255,255,0.02)'}} />
                 <ReferenceLine y={0} stroke="#2a2a3a" />
                 <Bar dataKey="avgPL" radius={[8,8,0,0]} maxBarSize={64}>
@@ -634,7 +635,6 @@ export default function Analytics() {
           sub="Trades where you broke your own rules — the real cost of indiscipline"
         />
 
-        {/* Top KPI row */}
         <div className="a-stat-grid a-stat-grid-4" style={{ marginBottom: 20 }}>
           <AStat
             label="Violation Rate"
@@ -673,8 +673,6 @@ export default function Analytics() {
           </div>
         ) : (
           <div className="a-grid-2">
-
-            {/* Chart 1: Clean vs Violated Avg P/L comparison */}
             <AChart title="Clean vs. Violated — Avg P/L" dot={C.loss} h={240}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
@@ -687,7 +685,7 @@ export default function Analytics() {
                 >
                   <CartesianGrid {...GRID_P} />
                   <XAxis dataKey="label" tick={TICK} tickLine={false} axisLine={false} />
-                  <YAxis tick={TICK} tickLine={false} axisLine={false} tickFormatter={v=>`${v>=0?'+':''}$${Math.abs(v).toFixed(0)}`} />
+                  <YAxis tick={TICK} tickLine={false} axisLine={false} tickFormatter={v=>`${v>=0?'':'-'}$${Math.abs(v).toFixed(0)}`} />
                   <Tooltip content={<Tip fmt={fmtMoney} />} cursor={{fill:'rgba(255,255,255,0.02)'}} />
                   <ReferenceLine y={0} stroke="#2a2a3a" />
                   <Bar dataKey="val" radius={[8,8,0,0]} maxBarSize={80}>
@@ -698,7 +696,6 @@ export default function Analytics() {
               </ResponsiveContainer>
             </AChart>
 
-            {/* Chart 2: Win Rate comparison */}
             <AChart title="Clean vs. Violated — Win Rate %" dot={C.warn} h={240}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
@@ -721,7 +718,6 @@ export default function Analytics() {
               </ResponsiveContainer>
             </AChart>
 
-            {/* Chart 3: Rolling violation frequency */}
             <AChart title="Violation Frequency — Rolling 10 Trades" dot={C.loss} h={220}>
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={violations.rollingViol} margin={MAR}>
@@ -735,7 +731,6 @@ export default function Analytics() {
               </ResponsiveContainer>
             </AChart>
 
-            {/* Chart 4: Mistake tag breakdown */}
             {violations.mistakeTags.length > 0 && (
               <AChart title="Mistake Tags on Violated Trades" dot={C.warn} h={220}>
                 <ResponsiveContainer width="100%" height="100%">
@@ -752,7 +747,6 @@ export default function Analytics() {
           </div>
         )}
 
-        {/* Violation log table */}
         {violations.vCount > 0 && (
           <div style={{ marginTop: 20 }}>
             <div style={{ fontSize:11, color:'#555f6e', fontFamily:'JetBrains Mono,monospace', letterSpacing:'0.5px', marginBottom:10, textTransform:'uppercase' }}>
@@ -772,7 +766,8 @@ export default function Analytics() {
                     <tr key={i} style={{ borderBottom:'1px solid rgba(255,255,255,0.04)', background: i%2===0?'transparent':'rgba(255,255,255,0.01)' }}>
                       <td style={{ padding:'7px 12px', color:'#8891a4' }}>{fmtD(t.date)}</td>
                       <td style={{ padding:'7px 12px', color:'#c0cad8', fontWeight:600 }}>{t.pair || '—'}</td>
-                      <td style={{ padding:'7px 12px', color: t.direction==='long'?C.profit:C.loss, fontWeight:700, textTransform:'uppercase', fontSize:10 }}>{t.direction || '—'}</td>
+                      {/* ── FIX: capital L/S match (was 'long'/'short') ── */}
+                      <td style={{ padding:'7px 12px', color: t.direction==='Long'?C.profit:C.loss, fontWeight:700, textTransform:'uppercase', fontSize:10 }}>{t.direction || '—'}</td>
                       <td style={{ padding:'7px 12px', color: t.net_pl>=0?C.profit:C.loss, fontWeight:700 }}>{fmtMoney(t.net_pl)}</td>
                       <td style={{ padding:'7px 12px', color: t.r_multiple>=0?C.profit:C.loss }}>{t.r_multiple!=null?fmtR(t.r_multiple):'—'}</td>
                       <td style={{ padding:'7px 12px', color:'#ffaa00' }}>{t.mistake_tag || <span style={{color:'#3a3a4a'}}>—</span>}</td>
@@ -790,6 +785,13 @@ export default function Analytics() {
           </div>
         )}
       </div>
+
+      {/* ══ 14. DAY × HOUR HEATMAP ══ */}
+      <div className="a-section">
+        <ASection title="Entry Timing Analysis" sub="When do you trade best? P&L by day of week and hour" />
+        <DayHourHeatmap data={dayHourData} />
+      </div>
+
     </div>
   );
 }
@@ -857,7 +859,6 @@ function SeqBar({ trades }) {
 }
 
 function HeatmapGrid({ data }) {
-  // Dynamic scale: find max absolute P/L in this period for opacity normalization
   const maxAbs=Math.max(...data.map(d=>d.pl!=null?Math.abs(d.pl):0),1);
   return (
     <div>
@@ -872,7 +873,6 @@ function HeatmapGrid({ data }) {
           const hasPL  = d.pl !== null && d.pl !== 0;
           let bg = 'rgba(255,255,255,0.025)';
           if (hasPL) {
-            // Scale opacity 0.18–0.88 relative to the largest day in the period
             const op = Math.min(0.18 + (Math.abs(d.pl)/maxAbs)*0.7, 0.88);
             bg = d.pl>0 ? `rgba(134,112,255,${op})` : `rgba(255,0,149,${op})`;
           }
@@ -905,6 +905,175 @@ function HeatmapGrid({ data }) {
   );
 }
 
+function DayHourHeatmap({ data }) {
+  const PROFIT = '#8670ff';
+  const LOSS   = '#ff0095';
+  const { grid, DAYS, HOURS, minPL, maxPL, bestCell, worstCell } = data;
+
+  const [tooltip, setTooltip] = useState(null);
+
+  const activeHours = HOURS.filter(h => DAYS.some(d => grid[d][h].count > 0));
+
+  function cellColor(pl, count) {
+    if (count === 0) return 'rgba(255,255,255,0.03)';
+    if (pl > 0) {
+      const intensity = maxPL > 0 ? Math.min(pl / maxPL, 1) : 0;
+      const alpha = 0.15 + intensity * 0.75;
+      return `rgba(134,112,255,${alpha.toFixed(2)})`;
+    } else {
+      const intensity = minPL < 0 ? Math.min(Math.abs(pl) / Math.abs(minPL), 1) : 0;
+      const alpha = 0.15 + intensity * 0.75;
+      return `rgba(255,0,149,${alpha.toFixed(2)})`;
+    }
+  }
+
+  const tradesWithTime = DAYS.reduce((sum, d) =>
+    sum + HOURS.reduce((s, h) => s + grid[d][h].count, 0), 0);
+
+  return (
+    <div style={{
+      background: 'var(--bg-elevated)', border: '1px solid var(--border-color)',
+      borderRadius: 14, padding: 24,
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Weekday × Hour Heatmap</div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+            P&L by day of week and entry hour — only trades with Entry Time are shown
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ width: 10, height: 10, borderRadius: 3, background: PROFIT }} />
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Profit</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ width: 10, height: 10, borderRadius: 3, background: LOSS }} />
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Loss</span>
+          </div>
+        </div>
+      </div>
+
+      {tradesWithTime === 0 ? (
+        <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-muted)', fontSize: 14 }}>
+          No trades with Entry Time logged yet. Add Entry Time when journaling to see this heatmap.
+        </div>
+      ) : (
+        <>
+          <div style={{ overflowX: 'auto' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: `56px repeat(${activeHours.length}, 1fr)`, gap: 3, minWidth: 500 }}>
+              <div />
+              {activeHours.map(h => (
+                <div key={h} style={{
+                  textAlign: 'center', fontSize: 11, color: 'var(--text-muted)',
+                  fontFamily: 'var(--font-mono)', paddingBottom: 6, fontWeight: 600,
+                }}>
+                  {String(h).padStart(2,'0')}
+                </div>
+              ))}
+
+              {DAYS.map(day => (
+                <React.Fragment key={day}>
+                  <div style={{
+                    display: 'flex', alignItems: 'center',
+                    fontSize: 12, fontWeight: 700, color: 'var(--text-muted)',
+                    paddingRight: 8, paddingLeft: 4,
+                  }}>
+                    {day}
+                  </div>
+
+                  {activeHours.map(h => {
+                    const cell = grid[day][h];
+                    const bg = cellColor(cell.pl, cell.count);
+                    const isBest  = bestCell?.day === day && bestCell?.hour === h;
+                    const isWorst = worstCell?.day === day && worstCell?.hour === h;
+                    return (
+                      <div
+                        key={h}
+                        onMouseEnter={e => setTooltip({ day, hour: h, cell, x: e.clientX, y: e.clientY })}
+                        onMouseLeave={() => setTooltip(null)}
+                        style={{
+                          height: 36, borderRadius: 6, background: bg,
+                          border: isBest  ? `1.5px solid ${PROFIT}` :
+                                  isWorst ? `1.5px solid ${LOSS}` :
+                                  '1px solid rgba(255,255,255,0.04)',
+                          cursor: cell.count > 0 ? 'pointer' : 'default',
+                          transition: 'opacity 0.15s',
+                          position: 'relative',
+                        }}
+                      />
+                    );
+                  })}
+                </React.Fragment>
+              ))}
+            </div>
+          </div>
+
+          {tooltip && tooltip.cell.count > 0 && (
+            <div style={{
+              position: 'fixed', left: tooltip.x + 12, top: tooltip.y - 10,
+              background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.12)',
+              borderRadius: 10, padding: '10px 14px', zIndex: 9999, pointerEvents: 'none',
+              boxShadow: '0 8px 32px rgba(0,0,0,0.6)', minWidth: 140,
+            }}>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>
+                {tooltip.day} @ {String(tooltip.hour).padStart(2,'0')}:00
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 2 }}>
+                Trades: <strong style={{ color: 'var(--text-primary)' }}>{tooltip.cell.count}</strong>
+              </div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: tooltip.cell.pl >= 0 ? PROFIT : LOSS }}>
+                {tooltip.cell.pl >= 0 ? '+' : ''}${tooltip.cell.pl.toFixed(2)}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                Avg: {tooltip.cell.count > 0 ? `${(tooltip.cell.pl / tooltip.cell.count >= 0 ? '+' : '')}$${(tooltip.cell.pl / tooltip.cell.count).toFixed(2)}` : '—'}
+              </div>
+            </div>
+          )}
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginTop: 20 }}>
+            {[
+              {
+                label: 'BEST TIMING',
+                value: bestCell ? `${bestCell.day} @ ${String(bestCell.hour).padStart(2,'0')}:00` : '—',
+                sub:   bestCell ? `+$${bestCell.pl.toFixed(2)}` : '',
+                color: PROFIT,
+              },
+              {
+                label: 'TOUGHEST PATCH',
+                value: worstCell ? `${worstCell.day} @ ${String(worstCell.hour).padStart(2,'0')}:00` : '—',
+                sub:   worstCell ? `-$${Math.abs(worstCell.pl).toFixed(2)}` : '',
+                color: LOSS,
+              },
+              {
+                label: 'TRADES ANALYSED',
+                value: String(tradesWithTime),
+                sub:   'with entry time',
+                color: 'var(--text-primary)',
+              },
+            ].map(({ label, value, sub, color }) => (
+              <div key={label} style={{
+                background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)',
+                borderRadius: 10, padding: '14px 18px',
+              }}>
+                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.6px', color: 'var(--text-muted)', marginBottom: 6 }}>
+                  {label}
+                </div>
+                <div style={{ fontSize: 18, fontWeight: 800, fontFamily: 'var(--font-mono)', color }}>
+                  {value}
+                </div>
+                {sub && (
+                  <div style={{ fontSize: 12, color, marginTop: 2, opacity: 0.8 }}>{sub}</div>
+                )}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 /* ─────────────────────────────────────────────
    CALCULATION ENGINE
 ───────────────────────────────────────────── */
@@ -924,35 +1093,28 @@ function calcStats(trades) {
   const avgLoss = losses.length ? grossL/losses.length : 0;
   const pf      = grossL>0 ? grossW/grossL : grossW>0 ? 9999 : 0;
 
-  // Expectancy = (WR × avgWin) - (LossRate × avgLoss)
   const exp = (wr/100)*avgWin - ((100-wr)/100)*avgLoss;
 
-  // R-multiple stats
   const rVals = trades.filter(t=>t.r_multiple!=null).map(t=>parseFloat(t.r_multiple));
   const avgR  = rVals.length ? rVals.reduce((s,r)=>s+r,0)/rVals.length : 0;
   const bestR  = rVals.length ? Math.max(...rVals) : null;
   const worstR = rVals.length ? Math.min(...rVals) : null;
   const rStd   = rVals.length>1 ? Math.sqrt(rVals.reduce((s,r)=>s+Math.pow(r-avgR,2),0)/rVals.length) : 0;
 
-  // P/L stats
   const returns = trades.map(t=>t.net_pl);
   const avgRet  = pl/trades.length;
   const std     = trades.length>1 ? Math.sqrt(returns.reduce((s,r)=>s+Math.pow(r-avgRet,2),0)/returns.length) : 0;
 
-  // Sharpe: (avgReturn / stdDev) × sqrt(252)
   const sharpe  = std>0 ? (avgRet/std)*Math.sqrt(252) : 0;
 
-  // Sortino: downside deviation = sqrt(mean of squared negative returns)
   const negRets = returns.filter(r=>r<0);
   const downDev = negRets.length>0 ? Math.sqrt(negRets.reduce((s,r)=>s+r*r,0)/negRets.length) : std;
   const sortino = downDev>0 ? (avgRet/downDev)*Math.sqrt(252) : 0;
 
-  // Max drawdown: largest peak-to-trough of cumulative P/L (chronological)
   const sorted = [...trades].sort((a,b)=>new Date(a.date)-new Date(b.date));
   let cum=0,peak=0,maxDD=0;
   sorted.forEach(t=>{cum+=t.net_pl;if(cum>peak)peak=cum;const d=peak-cum;if(d>maxDD)maxDD=d;});
 
-  // Calmar: net P/L / max drawdown
   const calmar = maxDD>0 ? pl/maxDD : pl>0 ? 9999 : 0;
 
   return {
@@ -965,25 +1127,50 @@ function calcStats(trades) {
   };
 }
 
+// ── FIX BUG 1: buildEquity — group by date sebelum plot ──
+// Sebelumnya: 3 trade di Feb 17 → 3 titik "Feb 17" di chart → garis flat
+// Sekarang:   3 trade di Feb 17 → dijumlahkan → 1 titik "Feb 17"
 function buildEquity(trades, startingBalance = 0) {
+  const sorted = [...trades].sort((a, b) => new Date(a.date) - new Date(b.date));
+
+  // Group by date, sum P&L
+  const dateMap = {};
+  const dateOrder = [];
+  sorted.forEach(t => {
+    if (!dateMap[t.date]) { dateMap[t.date] = 0; dateOrder.push(t.date); }
+    dateMap[t.date] += t.net_pl;
+  });
+
+  // Build cumulative equity starting from startingBalance
   let c = startingBalance;
-  return [...trades]
-    .sort((a, b) => new Date(a.date) - new Date(b.date))
-    .map((t, i) => {
-      c += t.net_pl;
-      return { l: fmtD(t.date), eq: +c.toFixed(2) };
-    });
+  const result = [{ l: 'Start', eq: +c.toFixed(2) }];
+  dateOrder.forEach(date => {
+    c += dateMap[date];
+    result.push({ l: fmtD(date), eq: +c.toFixed(2) });
+  });
+  return result;
 }
 
-function buildDrawdown(trades) {
-  let c=0,peak=0;
-  return [...trades].sort((a,b)=>new Date(a.date)-new Date(b.date)).map(t=>{
-    c+=t.net_pl;if(c>peak)peak=c;return{l:fmtD(t.date),dd:+((-(peak-c)).toFixed(2))};
+// ── FIX BUG 2: buildDrawdown — group by date + terima startingBalance ──
+function buildDrawdown(trades, startingBalance = 0) {
+  const sorted = [...trades].sort((a, b) => new Date(a.date) - new Date(b.date));
+
+  const dateMap = {};
+  const dateOrder = [];
+  sorted.forEach(t => {
+    if (!dateMap[t.date]) { dateMap[t.date] = 0; dateOrder.push(t.date); }
+    dateMap[t.date] += t.net_pl;
+  });
+
+  let c = startingBalance, peak = startingBalance;
+  return dateOrder.map(date => {
+    c += dateMap[date];
+    if (c > peak) peak = c;
+    return { l: fmtD(date), dd: +((-(peak - c)).toFixed(2)) };
   });
 }
 
 function buildMonthly(trades) {
-  // Sort first — Object insertion order determines chart order and cumPL correctness
   const sorted=[...trades].sort((a,b)=>new Date(a.date)-new Date(b.date));
   const keys=[];
   const m={};
@@ -1004,17 +1191,6 @@ function buildDow(trades) {
 }
 
 function buildRDist(trades) {
-  // Loss side: losses in this system are always -1R (stop hit).
-  // Only two negative buckets needed:
-  //   "< -2R"  — catastrophic / scaling losses beyond 2R
-  //   "-1R"    — standard stop-loss bucket (captures all -2R to 0R)
-  //
-  // Win side: wide buckets for runners
-  //   "0–1R"   — small wins / BE
-  //   "1–3R"   — moderate winners
-  //   "4–7R"   — good runners
-  //   "8–10R"  — great runners
-  //   "> 10R"  — exceptional / home-run trades
   const B = [
     { range: '< -2R',  min: -Infinity, max: -2,  pos: false, count: 0 },
     { range: '-1R',    min: -2,        max: 0,   pos: false, count: 0 },
@@ -1079,23 +1255,20 @@ function buildStreaks(trades) {
   const allW=[],allL=[];
   s.forEach(t=>{
     if(t.net_pl>0){
-      // Win: close loss streak if open
       cW++;if(cL>0){allL.push(cL);cL=0;}if(cW>bW)bW=cW;
     } else {
-      // Loss OR breakeven: both break a win streak and count as non-win
       if(cW>0){allW.push(cW);cW=0;}
       if(t.net_pl<0){cL++;if(cL>bL)bL=cL;}
-      else{if(cL>0){allL.push(cL);cL=0;}} // breakeven resets loss streak too
+      else{if(cL>0){allL.push(cL);cL=0;}}
     }
   });
   if(cW>0)allW.push(cW);if(cL>0)allL.push(cL);
   const avgWin=allW.length?allW.reduce((a,b)=>a+b,0)/allW.length:0;
   const avgLoss=allL.length?allL.reduce((a,b)=>a+b,0)/allL.length:0;
-  // Current streak: walk backward from last trade
   let current=0;
   for(let i=s.length-1;i>=0;i--){
     const t=s[i];
-    if(t.net_pl===0){break;} // breakeven breaks any streak
+    if(t.net_pl===0){break;}
     const isW=t.net_pl>0;
     if(i===s.length-1||s[i+1].net_pl===0){current=isW?1:-1;}
     else{const cont=(current>0&&isW)||(current<0&&!isW);if(cont)current=current>0?current+1:current-1;else break;}
@@ -1121,8 +1294,9 @@ function buildLS(trades) {
   });
 }
 
-function buildHeatmap(trades,days=90) {
-  const end=new Date(),start=new Date();
+// ── FIX BUG 4: buildHeatmap — UTC date bug untuk UTC+7 ──
+function buildHeatmap(trades, days=90) {
+  const end=new Date(), start=new Date();
   start.setDate(end.getDate()-(days-1));
   const dMap={};
   trades.forEach(t=>{dMap[t.date]=(dMap[t.date]||0)+t.net_pl;});
@@ -1130,7 +1304,8 @@ function buildHeatmap(trades,days=90) {
   const startDay=start.getDay();
   for(let p=0;p<startDay;p++) result.push({date:null,pl:null});
   for(let d=new Date(start);d<=end;d.setDate(d.getDate()+1)){
-    const k=d.toISOString().split('T')[0];
+    // FIX: use local date instead of toISOString() to avoid UTC offset bug
+    const k = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
     result.push({date:k,pl:dMap[k]??null});
   }
   return result;
@@ -1159,7 +1334,6 @@ function enrichModels(models) {
     const wr = (wins / total) * 100;
     const pf = gL > 0 ? gW / gL : gW > 0 ? 9999 : 0;
 
-    // Use total_trades - wins as loss count (DB doesn't return losing_trades)
     const lossCount = total - wins;
     const aW  = wins      > 0 ? gW / wins      : 0;
     const aL  = lossCount > 0 ? gL / lossCount : 0;
@@ -1179,14 +1353,12 @@ function enrichModels(models) {
 function buildScore(S) {
   if(!S||S.n===0) return[{m:'Win Rate',s:0},{m:'Profit Factor',s:0},{m:'Expectancy',s:0},{m:'Sharpe',s:0},{m:'Consistency',s:0},{m:'Payoff',s:0}];
   const norm=(v,min,max)=>Math.min(Math.max(((v-min)/(max-min))*100,0),100);
-  // Consistency: coefficient of variation inverse, but ONLY rewards if edge is positive.
-  // If avgPL <= 0, consistency score is 0 — consistent losing is not a skill.
   const avgPL=S.pl/S.n;
   const consistency=avgPL>0&&S.std>0
-    ? Math.max(1-S.std/avgPL,0)*100  // lower CV = more consistent profitable edge
+    ? Math.max(1-S.std/avgPL,0)*100
     : avgPL>0&&S.std===0
-      ? 100                           // zero volatility, positive avg = perfect
-      : 0;                            // losing or breakeven avg = 0 consistency score
+      ? 100
+      : 0;
   return[
     {m:'Win Rate',      s:+norm(S.wr,20,85).toFixed(1)},
     {m:'Profit Factor', s:+norm(S.pf,0.5,3).toFixed(1)},
@@ -1199,10 +1371,8 @@ function buildScore(S) {
 
 function buildDayHourHeatmap(trades) {
   const DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-  // Hours 00–23
   const HOURS = Array.from({ length: 24 }, (_, i) => i);
 
-  // Initialize grid: dayHour[day][hour] = { pl: 0, count: 0 }
   const grid = {};
   DAYS.forEach(d => {
     grid[d] = {};
@@ -1222,7 +1392,6 @@ function buildDayHourHeatmap(trades) {
     }
   });
 
-  // Find min/max for colour scaling
   let minPL = 0, maxPL = 0;
   DAYS.forEach(d => HOURS.forEach(h => {
     const v = grid[d][h].pl;
@@ -1230,7 +1399,6 @@ function buildDayHourHeatmap(trades) {
     if (v > maxPL) maxPL = v;
   }));
 
-  // Find best and worst cells
   let bestCell = null, worstCell = null;
   DAYS.forEach(d => HOURS.forEach(h => {
     const cell = grid[d][h];
@@ -1240,184 +1408,6 @@ function buildDayHourHeatmap(trades) {
   }));
 
   return { grid, DAYS, HOURS, minPL, maxPL, bestCell, worstCell };
-}
-
-function DayHourHeatmap({ data }) {
-  const PROFIT = '#8670ff';
-  const LOSS   = '#ff0095';
-  const { grid, DAYS, HOURS, minPL, maxPL, bestCell, worstCell } = data;
-
-  const [tooltip, setTooltip] = useState(null);
-
-  // Filter hours to only show ones that have at least 1 trade (save space)
-  const activeHours = HOURS.filter(h => DAYS.some(d => grid[d][h].count > 0));
-
-  function cellColor(pl, count) {
-    if (count === 0) return 'rgba(255,255,255,0.03)';
-    if (pl > 0) {
-      const intensity = maxPL > 0 ? Math.min(pl / maxPL, 1) : 0;
-      const alpha = 0.15 + intensity * 0.75;
-      return `rgba(134,112,255,${alpha.toFixed(2)})`;   // purple accent = profit
-    } else {
-      const intensity = minPL < 0 ? Math.min(Math.abs(pl) / Math.abs(minPL), 1) : 0;
-      const alpha = 0.15 + intensity * 0.75;
-      return `rgba(255,0,149,${alpha.toFixed(2)})`;     // pink accent = loss
-    }
-  }
-
-  const tradesWithTime = DAYS.reduce((sum, d) => 
-    sum + HOURS.reduce((s, h) => s + grid[d][h].count, 0), 0);
-
-  return (
-    <div style={{
-      background: 'var(--bg-elevated)', border: '1px solid var(--border-color)',
-      borderRadius: 14, padding: 24,
-    }}>
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
-        <div>
-          <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Weekday × Hour Heatmap</div>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-            P&L by day of week and entry hour — only trades with Entry Time are shown
-          </div>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <div style={{ width: 10, height: 10, borderRadius: 3, background: PROFIT }} />
-            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Profit</span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <div style={{ width: 10, height: 10, borderRadius: 3, background: LOSS }} />
-            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Loss</span>
-          </div>
-        </div>
-      </div>
-
-      {tradesWithTime === 0 ? (
-        <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-muted)', fontSize: 14 }}>
-          No trades with Entry Time logged yet. Add Entry Time when journaling to see this heatmap.
-        </div>
-      ) : (
-        <>
-          {/* Grid */}
-          <div style={{ overflowX: 'auto' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: `56px repeat(${activeHours.length}, 1fr)`, gap: 3, minWidth: 500 }}>
-              {/* Header row: hours */}
-              <div />
-              {activeHours.map(h => (
-                <div key={h} style={{
-                  textAlign: 'center', fontSize: 11, color: 'var(--text-muted)',
-                  fontFamily: 'var(--font-mono)', paddingBottom: 6, fontWeight: 600,
-                }}>
-                  {String(h).padStart(2,'0')}
-                </div>
-              ))}
-
-              {/* Data rows: each day */}
-              {DAYS.map(day => (
-                <React.Fragment key={day}>
-                  {/* Y-axis label */}
-                  <div style={{
-                    display: 'flex', alignItems: 'center',
-                    fontSize: 12, fontWeight: 700, color: 'var(--text-muted)',
-                    paddingRight: 8, paddingLeft: 4,
-                  }}>
-                    {day}
-                  </div>
-
-                  {/* Hour cells */}
-                  {activeHours.map(h => {
-                    const cell = grid[day][h];
-                    const bg = cellColor(cell.pl, cell.count);
-                    const isBest  = bestCell?.day === day && bestCell?.hour === h;
-                    const isWorst = worstCell?.day === day && worstCell?.hour === h;
-                    return (
-                      <div
-                        key={h}
-                        onMouseEnter={e => setTooltip({ day, hour: h, cell, x: e.clientX, y: e.clientY })}
-                        onMouseLeave={() => setTooltip(null)}
-                        style={{
-                          height: 36, borderRadius: 6, background: bg,
-                          border: isBest  ? `1.5px solid ${PROFIT}` :
-                                  isWorst ? `1.5px solid ${LOSS}` :
-                                  '1px solid rgba(255,255,255,0.04)',
-                          cursor: cell.count > 0 ? 'pointer' : 'default',
-                          transition: 'opacity 0.15s',
-                          position: 'relative',
-                        }}
-                      />
-                    );
-                  })}
-                </React.Fragment>
-              ))}
-            </div>
-          </div>
-
-          {/* Tooltip */}
-          {tooltip && tooltip.cell.count > 0 && (
-            <div style={{
-              position: 'fixed', left: tooltip.x + 12, top: tooltip.y - 10,
-              background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.12)',
-              borderRadius: 10, padding: '10px 14px', zIndex: 9999, pointerEvents: 'none',
-              boxShadow: '0 8px 32px rgba(0,0,0,0.6)', minWidth: 140,
-            }}>
-              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>
-                {tooltip.day} @ {String(tooltip.hour).padStart(2,'0')}:00
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 2 }}>
-                Trades: <strong style={{ color: 'var(--text-primary)' }}>{tooltip.cell.count}</strong>
-              </div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: tooltip.cell.pl >= 0 ? PROFIT : LOSS }}>
-                {tooltip.cell.pl >= 0 ? '+' : ''}${tooltip.cell.pl.toFixed(2)}
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
-                Avg: {tooltip.cell.count > 0 ? `${(tooltip.cell.pl / tooltip.cell.count >= 0 ? '+' : '')}$${(tooltip.cell.pl / tooltip.cell.count).toFixed(2)}` : '—'}
-              </div>
-            </div>
-          )}
-
-          {/* Stats row */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginTop: 20 }}>
-            {[
-              {
-                label: 'BEST TIMING',
-                value: bestCell ? `${bestCell.day} @ ${String(bestCell.hour).padStart(2,'0')}:00` : '—',
-                sub:   bestCell ? `+$${bestCell.pl.toFixed(2)}` : '',
-                color: PROFIT,
-              },
-              {
-                label: 'TOUGHEST PATCH',
-                value: worstCell ? `${worstCell.day} @ ${String(worstCell.hour).padStart(2,'0')}:00` : '—',
-                sub:   worstCell ? `-$${Math.abs(worstCell.pl).toFixed(2)}` : '',
-                color: LOSS,
-              },
-              {
-                label: 'TRADES ANALYSED',
-                value: String(tradesWithTime),
-                sub:   'with entry time',
-                color: 'var(--text-primary)',
-              },
-            ].map(({ label, value, sub, color }) => (
-              <div key={label} style={{
-                background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)',
-                borderRadius: 10, padding: '14px 18px',
-              }}>
-                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.6px', color: 'var(--text-muted)', marginBottom: 6 }}>
-                  {label}
-                </div>
-                <div style={{ fontSize: 18, fontWeight: 800, fontFamily: 'var(--font-mono)', color }}>
-                  {value}
-                </div>
-                {sub && (
-                  <div style={{ fontSize: 12, color, marginTop: 2, opacity: 0.8 }}>{sub}</div>
-                )}
-              </div>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
-  );
 }
 
 function buildViolations(trades) {
@@ -1430,11 +1420,8 @@ function buildViolations(trades) {
 
   const avgViol  = avg(violated);
   const avgClean = avg(clean);
-
-  // "Hidden cost" = total P&L of violated trades (negative = money lost to bad discipline)
   const hiddenCost = violated.reduce((s, t) => s + t.net_pl, 0);
 
-  // Rolling 10-trade violation rate
   const rollingViol = sorted.map((_, i, arr) => {
     if (i < 9) return null;
     const window = arr.slice(i - 9, i + 1);
@@ -1442,7 +1429,6 @@ function buildViolations(trades) {
     return { l: fmtD(arr[i].date), vr: +vr.toFixed(1) };
   }).filter(Boolean);
 
-  // Mistake tag breakdown (only on violated trades)
   const tagMap = {};
   violated.forEach(t => {
     if (t.mistake_tag) {
@@ -1465,7 +1451,7 @@ function buildViolations(trades) {
     violWR:        wr(violated),
     rollingViol,
     mistakeTags,
-    violatedTrades: violated.slice().reverse(), // most recent first
+    violatedTrades: violated.slice().reverse(),
   };
 }
 
