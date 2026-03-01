@@ -118,16 +118,14 @@ function Accounts() {
                   </span>
                   <h3 className="account-name">{acc.name}</h3>
                 </div>
-                {acc.type === 'custom' && (
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <button className="btn btn-ghost" style={{ padding: '6px 10px' }} onClick={() => openModal(acc)}>
-                      <Icon name="edit" size={14} color="muted" />
-                    </button>
-                    <button className="btn btn-ghost" style={{ padding: '6px 10px' }} onClick={() => handleDelete(acc)}>
-                      <Icon name="delete" size={14} color="loss" />
-                    </button>
-                  </div>
-                )}
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button className="btn btn-ghost" style={{ padding: '6px 10px' }} onClick={() => openModal(acc)}>
+                    <Icon name="edit" size={14} color="muted" />
+                  </button>
+                  <button className="btn btn-ghost" style={{ padding: '6px 10px' }} onClick={() => handleDelete(acc)}>
+                    <Icon name="delete" size={14} color="loss" />
+                  </button>
+                </div>
               </div>
 
               {/* Balance */}

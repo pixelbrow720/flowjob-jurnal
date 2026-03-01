@@ -142,66 +142,26 @@ class DatabaseManager {
     addColIfMissing('tp_points',          'REAL');
     // BUG FIX #3: Default outcome pakai NULL dulu, nanti di-backfill dari net_pl
     // supaya trade lama yang profit tidak salah jadi 'loss'
-    addColIfMissing('outcome',            'TEXT');
-    addColIfMissing('stop_loss',          'REAL DEFAULT 0');
-    addColIfMissing('take_profit',        'REAL');
-    addColIfMissing('account_size',       'REAL DEFAULT 25000');
-    addColIfMissing('risk_percent',       'REAL DEFAULT 1');
-    addColIfMissing('position_size',      'INTEGER DEFAULT 1');
+    addColIfMissing('outcome',            "TEXT DEFAULT NULL");
+    addColIfMissing('entry_time',         'TEXT');
     addColIfMissing('screenshot_before',  'TEXT');
     addColIfMissing('screenshot_after',   'TEXT');
-    addColIfMissing('entry_time',         'TEXT DEFAULT NULL');
 
-    // Sync sl_points from stop_loss if sl_points is empty (migration of old data)
-    try {
-      this.db.exec(`
-        UPDATE trades SET sl_points = stop_loss WHERE (sl_points IS NULL OR sl_points = 0) AND stop_loss > 0
-      `);
-    } catch(e) {}
+    // Backfill outcome for old trades that have NULL outcome
+    this.db.prepare(`
+      UPDATE trades SET outcome = CASE
+        WHEN net_pl > 0 THEN 'win'
+        WHEN net_pl < 0 THEN 'loss'
+        ELSE 'breakeven'
+      END
+      WHERE outcome IS NULL
+    `).run();
 
-    // BUG FIX #3: Backfill outcome dari net_pl untuk trade lama yang belum punya outcome
-    // Jadi trade profit tidak salah keitung sebagai 'loss'
-    try {
-      this.db.exec(`
-        UPDATE trades
-        SET outcome = CASE
-          WHEN net_pl > 0 THEN 'win'
-          WHEN net_pl < 0 THEN 'loss'
-          ELSE 'breakeven'
-        END
-        WHERE outcome IS NULL OR outcome = ''
-      `);
-    } catch(e) {}
-
-    // ── Migrate models table ──────────────────────────────────────────────────
-    const modelColumns = this.db.prepare("PRAGMA table_info(models)").all().map(c => c.name);
-    if (!modelColumns.includes('timeframes')) {
-      try { this.db.exec("ALTER TABLE models ADD COLUMN timeframes TEXT"); } catch(e) {}
-    }
-
-    // ── Migrate daily_journals table ──────────────────────────────────────────
-    // Columns added after initial release — safe to add if missing
-    const djColumns = this.db.prepare("PRAGMA table_info(daily_journals)").all().map(c => c.name);
-    const addDJColIfMissing = (col, definition) => {
-      if (!djColumns.includes(col)) {
-        try { this.db.exec(`ALTER TABLE daily_journals ADD COLUMN ${col} ${definition}`); } catch(e) {}
-      }
-    };
-    addDJColIfMissing('pre_market_image',     'TEXT');
-    addDJColIfMissing('post_session_image',   'TEXT');
-    addDJColIfMissing('emotional_state_pre',  'TEXT');
-    addDJColIfMissing('emotional_state_post', 'TEXT');
-    addDJColIfMissing('planned_setups',       'TEXT');
-    addDJColIfMissing('risk_plan',            'TEXT');
-    addDJColIfMissing('execution_notes',      'TEXT');
-    addDJColIfMissing('what_worked',          'TEXT');
-    addDJColIfMissing('what_didnt_work',      'TEXT');
-    addDJColIfMissing('lessons_learned',      'TEXT');
-    addDJColIfMissing('discipline_score',     'INTEGER DEFAULT 5');
-
+    // ── Education Tables ──────────────────────────────────────────────────────
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS education_weeks (
-        week_number INTEGER PRIMARY KEY,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        week_number INTEGER NOT NULL UNIQUE,
         title TEXT NOT NULL,
         phase TEXT NOT NULL
       );
@@ -212,7 +172,7 @@ class DatabaseManager {
         id TEXT PRIMARY KEY,
         week_number INTEGER NOT NULL,
         slide_order INTEGER NOT NULL DEFAULT 0,
-        type TEXT NOT NULL DEFAULT 'concept',
+        type TEXT NOT NULL DEFAULT 'text',
         title TEXT NOT NULL,
         body TEXT DEFAULT '',
         image TEXT,
@@ -221,14 +181,10 @@ class DatabaseManager {
       );
     `);
 
-    // seed 12 minggu
-    const eduExists = this.db.prepare(
-      'SELECT week_number FROM education_weeks WHERE week_number = 1'
-    ).get();
-
-    if (!eduExists) {
+    const weekCount = this.db.prepare("SELECT COUNT(*) as cnt FROM education_weeks").get();
+    if (weekCount.cnt === 0) {
       const insertWeek = this.db.prepare(
-        'INSERT OR IGNORE INTO education_weeks (week_number, title, phase) VALUES (?, ?, ?)'
+        "INSERT OR IGNORE INTO education_weeks (week_number, title, phase) VALUES (?, ?, ?)"
       );
 
       const weekData = [
@@ -425,7 +381,41 @@ class DatabaseManager {
 
   // ─── Trade Methods ────────────────────────────────────────────────────────
 
+  // ── HELPER: normalize trade payload ──────────────────────────────────────
+  // Journal.js mengirim snake_case (entry_time, account_id, net_pl, dll.)
+  // tapi kode lama database.js membaca camelCase (entryTime, accountId, netPL, dll.)
+  // Helper ini mendukung KEDUANYA agar tidak ada field yang hilang saat save.
+  _normalizeTrade(trade) {
+    return {
+      date:               trade.date,
+      entryTime:          trade.entry_time          ?? trade.entryTime          ?? null,
+      accountId:          trade.account_id          ?? trade.accountId          ?? null,
+      modelId:            trade.model_id            ?? trade.modelId            ?? null,
+      pair:               trade.pair,
+      direction:          trade.direction,
+      entryPrice:         trade.entry_price         ?? trade.entryPrice         ?? 0,
+      slPoints:           trade.sl_points           ?? trade.slPoints           ?? 0,
+      tpPoints:           trade.tp_points           ?? trade.tpPoints           ?? null,
+      positionSize:       trade.position_size       ?? trade.positionSize       ?? 1,
+      outcome:            trade.outcome             ?? null,
+      netPL:              trade.net_pl              ?? trade.netPL              ?? 0,
+      rMultiple:          trade.r_multiple          ?? trade.rMultiple          ?? null,
+      notes:              trade.notes               ?? null,
+      emotionalState:     trade.emotional_state     ?? trade.emotionalState     ?? null,
+      mistakeTag:         trade.mistake_tag         ?? trade.mistakeTag         ?? null,
+      ruleViolation:      trade.rule_violation      ?? trade.ruleViolation      ?? 0,
+      setupQualityScore:  trade.setup_quality_score ?? trade.setupQualityScore  ?? null,
+      disciplineScore:    trade.discipline_score    ?? trade.disciplineScore    ?? null,
+      tradeGrade:         trade.trade_grade         ?? trade.tradeGrade         ?? null,
+      screenshotBefore:   trade.screenshot_before   ?? trade.screenshotBefore   ?? null,
+      screenshotAfter:    trade.screenshot_after    ?? trade.screenshotAfter    ?? null,
+    };
+  }
+
   createTrade(trade) {
+    // BUG FIX UTAMA: Normalize dulu supaya snake_case dari Journal.js terbaca benar
+    const t = this._normalizeTrade(trade);
+
     const cols = this.db.prepare("PRAGMA table_info(trades)").all().map(c => c.name);
 
     const fields = [
@@ -436,31 +426,31 @@ class DatabaseManager {
     ];
 
     const values = [
-      trade.date,
-      trade.modelId || null,
-      trade.pair,
-      trade.direction,
-      trade.entryPrice || 0,
-      trade.positionSize || 1,
-      trade.rMultiple || null,
-      trade.netPL || 0,
-      trade.notes || null,
-      trade.emotionalState || null,
-      trade.mistakeTag || null,
-      trade.ruleViolation ? 1 : 0,
-      trade.setupQualityScore || null,
-      trade.disciplineScore || null,
-      trade.tradeGrade || null,
+      t.date,
+      t.modelId || null,
+      t.pair,
+      t.direction,
+      t.entryPrice || 0,
+      t.positionSize || 1,
+      t.rMultiple || null,
+      t.netPL || 0,
+      t.notes || null,
+      t.emotionalState || null,
+      t.mistakeTag || null,
+      t.ruleViolation ? 1 : 0,
+      t.setupQualityScore || null,
+      t.disciplineScore || null,
+      t.tradeGrade || null,
     ];
 
     // Always fill old NOT NULL columns with safe defaults
     const oldColDefaults = {
-      'stop_loss':         trade.slPoints || 0,
-      'take_profit':       trade.tpPoints || null,
+      'stop_loss':         t.slPoints || 0,
+      'take_profit':       t.tpPoints || null,
       'account_size':      25000,
       'risk_percent':      1,
-      'screenshot_before': trade.screenshotBefore || null,
-      'screenshot_after':  trade.screenshotAfter  || null,
+      'screenshot_before': t.screenshotBefore || null,
+      'screenshot_after':  t.screenshotAfter  || null,
     };
     Object.entries(oldColDefaults).forEach(([col, val]) => {
       if (cols.includes(col)) { fields.push(col); values.push(val); }
@@ -468,10 +458,10 @@ class DatabaseManager {
 
     // New columns
     const newCols = {
-      'sl_points':  trade.slPoints || 0,
-      'tp_points':  trade.tpPoints || null,
-      'account_id': trade.accountId || null,
-      'outcome':    trade.outcome || (trade.netPL > 0 ? 'win' : trade.netPL < 0 ? 'loss' : 'breakeven'),
+      'sl_points':  t.slPoints || 0,
+      'tp_points':  t.tpPoints || null,
+      'account_id': t.accountId || null,
+      'outcome':    t.outcome || (t.netPL > 0 ? 'win' : t.netPL < 0 ? 'loss' : 'breakeven'),
     };
     Object.entries(newCols).forEach(([col, val]) => {
       if (cols.includes(col)) { fields.push(col); values.push(val); }
@@ -480,7 +470,7 @@ class DatabaseManager {
     // BUG FIX #1: Simpan entry_time ke database
     if (cols.includes('entry_time')) {
       fields.push('entry_time');
-      values.push(trade.entryTime || null);
+      values.push(t.entryTime || null);
     }
 
     const placeholders = fields.map(() => '?').join(', ');
@@ -488,7 +478,7 @@ class DatabaseManager {
       `INSERT INTO trades (${fields.join(', ')}) VALUES (${placeholders})`
     ).run(...values);
 
-    if (trade.accountId) this.updateAccountBalance(trade.accountId, trade.netPL);
+    if (t.accountId) this.updateAccountBalance(t.accountId, t.netPL);
     return result.lastInsertRowid;
   }
 
@@ -538,6 +528,9 @@ class DatabaseManager {
   }
 
   updateTrade(id, trade) {
+    // BUG FIX UTAMA: Normalize dulu supaya snake_case dari Journal.js terbaca benar
+    const t = this._normalizeTrade(trade);
+
     const oldTrade = this.getTrade(id);
     if (oldTrade && oldTrade.account_id) {
       this.updateAccountBalance(oldTrade.account_id, -oldTrade.net_pl);
@@ -552,40 +545,40 @@ class DatabaseManager {
       'rule_violation = ?', 'setup_quality_score = ?', 'discipline_score = ?', 'trade_grade = ?',
     ];
     const values = [
-      trade.date,
-      trade.modelId || null,
-      trade.pair,
-      trade.direction,
-      trade.entryPrice || 0,
-      trade.positionSize || 1,
-      trade.rMultiple || null,
-      trade.netPL || 0,
-      trade.notes || null,
-      trade.emotionalState || null,
-      trade.mistakeTag || null,
-      trade.ruleViolation ? 1 : 0,
-      trade.setupQualityScore || null,
-      trade.disciplineScore || null,
-      trade.tradeGrade || null,
+      t.date,
+      t.modelId || null,
+      t.pair,
+      t.direction,
+      t.entryPrice || 0,
+      t.positionSize || 1,
+      t.rMultiple || null,
+      t.netPL || 0,
+      t.notes || null,
+      t.emotionalState || null,
+      t.mistakeTag || null,
+      t.ruleViolation ? 1 : 0,
+      t.setupQualityScore || null,
+      t.disciplineScore || null,
+      t.tradeGrade || null,
     ];
 
     const oldColDefaults = {
-      'stop_loss':         trade.slPoints || 0,
-      'take_profit':       trade.tpPoints || null,
+      'stop_loss':         t.slPoints || 0,
+      'take_profit':       t.tpPoints || null,
       'account_size':      25000,
       'risk_percent':      1,
-      'screenshot_before': trade.screenshotBefore || null,
-      'screenshot_after':  trade.screenshotAfter  || null,
+      'screenshot_before': t.screenshotBefore || null,
+      'screenshot_after':  t.screenshotAfter  || null,
     };
     Object.entries(oldColDefaults).forEach(([col, val]) => {
       if (cols.includes(col)) { sets.push(`${col} = ?`); values.push(val); }
     });
 
     const newCols = {
-      'sl_points':  trade.slPoints || 0,
-      'tp_points':  trade.tpPoints || null,
-      'account_id': trade.accountId || null,
-      'outcome':    trade.outcome || (trade.netPL > 0 ? 'win' : trade.netPL < 0 ? 'loss' : 'breakeven'),
+      'sl_points':  t.slPoints || 0,
+      'tp_points':  t.tpPoints || null,
+      'account_id': t.accountId || null,
+      'outcome':    t.outcome || (t.netPL > 0 ? 'win' : t.netPL < 0 ? 'loss' : 'breakeven'),
     };
     Object.entries(newCols).forEach(([col, val]) => {
       if (cols.includes(col)) { sets.push(`${col} = ?`); values.push(val); }
@@ -594,7 +587,7 @@ class DatabaseManager {
     // BUG FIX #1: Update entry_time juga saat edit trade
     if (cols.includes('entry_time')) {
       sets.push('entry_time = ?');
-      values.push(trade.entryTime || null);
+      values.push(t.entryTime || null);
     }
 
     values.push(id);
@@ -602,7 +595,7 @@ class DatabaseManager {
       `UPDATE trades SET ${sets.join(', ')} WHERE id = ?`
     ).run(...values);
 
-    if (trade.accountId) this.updateAccountBalance(trade.accountId, trade.netPL);
+    if (t.accountId) this.updateAccountBalance(t.accountId, t.netPL);
     return result;
   }
 
@@ -684,7 +677,6 @@ class DatabaseManager {
   getModelPerformance(filters = {}) {
     // BUG FIX: Filter dipindah dari WHERE ke kondisi JOIN supaya LEFT JOIN
     // tetap berfungsi benar — model tanpa trades tetap muncul dengan count = 0.
-    // Sebelumnya WHERE clause "merusak" LEFT JOIN jadi efektif INNER JOIN.
     const joinConditions = ['m.id = t.model_id'];
     const params = [];
 
