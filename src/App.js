@@ -10,7 +10,6 @@ import Accounts from './pages/Accounts';
 import CalendarPnL from './pages/CalendarPnL';
 import TradingRules from './pages/TradingRules';
 import DailyJournal from './pages/DailyJournal';
-import Education from './pages/Education';
 import Profile from './pages/Profile';
 import ErrorBoundary from './components/ErrorBoundary';
 import './App.css';
@@ -49,7 +48,6 @@ function App() {
                 <Route path="/analytics" element={<Analytics />} />
                 <Route path="/calendar" element={<CalendarPnL />} />
                 <Route path="/risk" element={<TradingRules />} />
-                <Route path="/education" element={<Education />} />
                 <Route path="/profile" element={<Profile />} />
               </Routes>
             </ErrorBoundary>

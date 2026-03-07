@@ -120,6 +120,11 @@ export default function Analytics() {
   const [filters,  setFilters]  = useState({ accountId:'', startDate:'', endDate:'' });
   const [loading,  setLoading]  = useState(true);
 
+  // ── Monte Carlo state ──
+  const [mcConfig,  setMcConfig]  = useState({ numSims: 1000, numTrades: 100 });
+  const [mcRunning, setMcRunning] = useState(false);
+  const [mcResult,  setMcResult]  = useState(null);
+
   useEffect(() => { load(); }, [filters]); // eslint-disable-line
 
   const load = async () => {
@@ -153,7 +158,6 @@ export default function Analytics() {
     return accounts.reduce((sum, a) => sum + (a.initial_balance || 25000), 0);
   }, [accounts, filters.accountId]);
 
-  // ── FIX: pass startingBalance to both buildEquity and buildDrawdown ──
   const equity    = useMemo(() => buildEquity(trades, startingBalance),    [trades, startingBalance]);
   const dd        = useMemo(() => buildDrawdown(trades, startingBalance),  [trades, startingBalance]);
   const monthly   = useMemo(() => buildMonthly(trades),     [trades]);
@@ -172,6 +176,22 @@ export default function Analytics() {
   const dayHourData = useMemo(() => buildDayHourHeatmap(trades), [trades]);
   const selAcc    = accounts.find(a => a.id === parseInt(filters.accountId));
   const violations = useMemo(() => buildViolations(trades), [trades]);
+
+  // ── Monte Carlo: re-run when trades / config / startingBalance changes ──
+  useEffect(() => {
+    if (trades.length < 5) { setMcResult(null); return; }
+    setMcRunning(true);
+    const t = setTimeout(() => {
+      try {
+        const result = runMonteCarlo(trades, startingBalance, mcConfig.numSims, mcConfig.numTrades);
+        setMcResult(result);
+      } catch(e) {
+        setMcResult(null);
+      }
+      setMcRunning(false);
+    }, 60);
+    return () => clearTimeout(t);
+  }, [trades, startingBalance, mcConfig]); // eslint-disable-line
 
   if (!loading && !trades.length) return (
     <div className="fade-in analytics-wrap">
@@ -214,9 +234,9 @@ export default function Analytics() {
           <AStat label="Sortino Ratio" value={S.sortino.toFixed(2)}                                           col={S.sortino>=1?'col-profit':S.sortino>=0?'col-warn':'col-loss'} desc="Sharpe adjusted for downside vol" />
           <AStat label="Calmar Ratio"  value={S.calmar>=999?'∞':S.calmar.toFixed(2)}                         col={S.calmar>=1?'col-profit':S.calmar>=0?'col-warn':'col-loss'} desc="Net P/L ÷ Max drawdown" />
           <AStat label="Payoff Ratio"  value={S.avgLoss>0?(S.avgWin/S.avgLoss).toFixed(2):'∞'}               col={S.avgWin>=S.avgLoss?'col-profit':'col-warn'} desc="Avg win ÷ avg loss" />
-          <AStat label="Std Deviation" value={`$${S.std.toFixed(2)}`}                                         col="col-base"   desc="Per-trade P/L volatility" />
-          <AStat label="Best Streak"   value={`${streaks.bestWin}W`}                                          col="col-profit" sub={`Avg win streak: ${streaks.avgWin.toFixed(1)}`} />
-          <AStat label="Worst Streak"  value={`${streaks.worstLoss}L`}                                        col="col-loss"   sub={`Current: ${streaks.current>0?`${streaks.current}W`:streaks.current<0?`${Math.abs(streaks.current)}L`:'—'}`} />
+          <AStat label="Std Dev"       value={`$${S.std.toFixed(2)}`}                                         col="col-base"   desc="Trade P/L standard deviation" />
+          <AStat label="Best Streak"   value={`${streaks.bestWin}W`}                                          col="col-profit" desc={`Avg win streak: ${streaks.avgWin.toFixed(1)}`} />
+          <AStat label="Worst Streak"  value={`${streaks.worstLoss}L`}                                        col="col-loss"   desc={`Avg loss streak: ${streaks.avgLoss.toFixed(1)}`} />
         </div>
       </div>
 
@@ -272,82 +292,59 @@ export default function Analytics() {
                 <YAxis tick={TICK} tickLine={false} axisLine={false} tickFormatter={fmtK} />
                 <Tooltip content={<Tip fmt={fmtK} />} cursor={{stroke:'#2a2a3a',strokeWidth:1}} />
                 <ReferenceLine y={startingBalance > 0 ? startingBalance : 0} stroke="#2a2a3a" strokeDasharray="4 4" />
-                <Area type="monotone" dataKey="eq" stroke="none" fill="url(#gProfit)" dot={false} activeDot={false} />
+                <Area type="monotone" dataKey="eq" stroke="none" fill="url(#gProfit)" fillOpacity={1} dot={false} activeDot={false} />
                 <Line type="monotone" dataKey="eq" stroke={C.profit} strokeWidth={2.5}
-                  dot={false} activeDot={{r:5,fill:C.profit,stroke:'#000',strokeWidth:2}} />
+                  dot={false} activeDot={{r:4,fill:C.profit,stroke:'#000',strokeWidth:2}} />
               </ComposedChart>
             </ResponsiveContainer>
           </AChart>
         </div>
+        <AChart title="Drawdown" dot={C.loss} h={160}>
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={dd} margin={MAR}>
+              <SvgDefs />
+              <CartesianGrid {...GRID_P} />
+              <XAxis dataKey="l" tick={TICK} tickLine={false} axisLine={false} interval="preserveStartEnd" />
+              <YAxis tick={TICK} tickLine={false} axisLine={false} tickFormatter={fmtK} />
+              <Tooltip content={<Tip fmt={fmtK} color={C.loss} />} cursor={{stroke:'#2a2a3a',strokeWidth:1}} />
+              <ReferenceLine y={0} stroke="#2a2a3a" />
+              <Area type="monotone" dataKey="dd" stroke="none" fill="url(#gLoss)" fillOpacity={1} dot={false} activeDot={false} />
+              <Line type="monotone" dataKey="dd" stroke={C.loss} strokeWidth={2}
+                dot={false} activeDot={{r:4,fill:C.loss,stroke:'#000',strokeWidth:2}} />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </AChart>
+      </div>
 
+      {/* ══ 5. MONTHLY P/L ══ */}
+      <div className="a-section">
+        <ASection title="Monthly Performance" sub="Month-by-month breakdown — spot your consistent vs inconsistent months" />
         <div className="a-grid-2">
-          <AChart title="Drawdown from Peak" dot={C.loss} h={200}>
+          <AChart title="Monthly P/L" dot={C.warn} h={240}>
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={dd} margin={MAR}>
-                <SvgDefs />
+              <BarChart data={monthly} margin={MAR} barCategoryGap="22%">
                 <CartesianGrid {...GRID_P} />
-                <XAxis dataKey="l" tick={TICK} tickLine={false} axisLine={false} interval="preserveStartEnd" />
-                <YAxis tick={TICK} tickLine={false} axisLine={false} tickFormatter={v=>`-$${Math.abs(v)>=1000?(Math.abs(v)/1000).toFixed(1)+'k':Math.abs(v).toFixed(0)}`} />
-                <Tooltip content={<Tip fmt={v=>`-$${Math.abs(v).toFixed(2)}`} color={C.loss} />} cursor={{stroke:'#2a2a3a',strokeWidth:1}} />
-                <Area type="monotone" dataKey="dd" stroke={C.loss} strokeWidth={2} fill="url(#gLoss)"
-                  dot={false} activeDot={{r:4,fill:C.loss,stroke:'#000',strokeWidth:2}} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </AChart>
-
-          <AChart title="Per-Trade P/L Bar" dot={C.blue} h={200}>
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={sorted.map((t,i)=>({l:fmtD(t.date),pl:+t.net_pl.toFixed(2)}))} margin={MAR} barCategoryGap="15%">
-                <CartesianGrid {...GRID_P} />
-                <XAxis dataKey="l" tick={TICK} tickLine={false} axisLine={false} interval="preserveStartEnd" />
-                <YAxis tick={TICK} tickLine={false} axisLine={false} tickFormatter={v=>`$${v>=0?'':'-'}${Math.abs(v).toFixed(0)}`} />
+                <XAxis dataKey="m" tick={TICK} tickLine={false} axisLine={false} />
+                <YAxis tick={TICK} tickLine={false} axisLine={false} tickFormatter={fmtK} />
                 <Tooltip content={<Tip fmt={fmtMoney} />} cursor={{fill:'rgba(255,255,255,0.02)'}} />
                 <ReferenceLine y={0} stroke="#2a2a3a" />
-                <Bar dataKey="pl" radius={[3,3,0,0]} maxBarSize={10}>
-                  {sorted.map((t,i)=><Cell key={i} fill={t.net_pl>=0?C.profit:C.loss} fillOpacity={0.85} />)}
+                <Bar dataKey="pl" radius={[6,6,0,0]} maxBarSize={48}>
+                  {monthly.map((e,i)=><Cell key={i} fill={e.pl>=0?C.profit:C.loss} fillOpacity={0.88} />)}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
           </AChart>
-        </div>
-      </div>
 
-      {/* ══ 5. ROLLING METRICS ══ */}
-      <div className="a-section">
-        <ASection title="Rolling Performance (10-Trade Window)" sub="Are you improving or slipping? This tracks your edge in real-time." />
-        <div className="a-grid-2">
-          <AChart title="Rolling Win Rate" dot={C.blue} h={220}>
+          <AChart title="Cumulative P/L by Month" dot={C.green} h={240}>
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={rollingWR} margin={MAR}>
+              <ComposedChart data={monthly} margin={MAR}>
                 <SvgDefs />
                 <CartesianGrid {...GRID_P} />
-                <XAxis dataKey="i" tick={TICK} tickLine={false} axisLine={false}
-                  label={{value:'Trade #',fill:'#4a5568',fontSize:9,position:'insideBottom',offset:-2}} />
-                <YAxis tick={TICK} tickLine={false} axisLine={false} domain={[0,100]} tickFormatter={v=>`${v}%`} />
-                <Tooltip content={<Tip fmt={fmtPct} color={C.blue} />} cursor={{stroke:'#2a2a3a',strokeWidth:1}} />
-                <ReferenceLine y={50} stroke={C.warn} strokeDasharray="4 4" strokeWidth={1}
-                  label={{value:'50%',fill:C.warn,fontSize:9,position:'right'}} />
-                <Area type="monotone" dataKey="wr" stroke="none" fill="url(#gBlue)" fillOpacity={1} dot={false} activeDot={false} />
-                <Line type="monotone" dataKey="wr" stroke={C.blue} strokeWidth={2.5}
-                  dot={false} activeDot={{r:4,fill:C.blue,stroke:'#000',strokeWidth:2}} />
-              </ComposedChart>
-            </ResponsiveContainer>
-          </AChart>
-
-          <AChart title="Rolling Expectancy" dot={C.green} h={220}>
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={rollingEx} margin={MAR}>
-                <SvgDefs />
-                <CartesianGrid {...GRID_P} />
-                <XAxis dataKey="i" tick={TICK} tickLine={false} axisLine={false}
-                  label={{value:'Trade #',fill:'#4a5568',fontSize:9,position:'insideBottom',offset:-2}} />
-                <YAxis tick={TICK} tickLine={false} axisLine={false} tickFormatter={v=>`$${v>=0?'':'-'}${Math.abs(v).toFixed(0)}`} />
-                <Tooltip content={<Tip fmt={fmtMoney} />} cursor={{stroke:'#2a2a3a',strokeWidth:1}} />
-                <ReferenceLine y={0} stroke="#2a2a3a" strokeDasharray="4 4" />
-                <Bar dataKey="ex" maxBarSize={14} radius={[3,3,0,0]}>
-                  {rollingEx.map((e,i)=><Cell key={i} fill={e.ex>=0?C.profit:C.loss} fillOpacity={0.75} />)}
-                </Bar>
-                <Line type="monotone" dataKey="ex" stroke={C.green} strokeWidth={2}
+                <XAxis dataKey="m" tick={TICK} tickLine={false} axisLine={false} />
+                <YAxis tick={TICK} tickLine={false} axisLine={false} tickFormatter={fmtK} />
+                <Tooltip content={<Tip fmt={fmtK} color={C.green} />} cursor={{stroke:'#2a2a3a',strokeWidth:1}} />
+                <Area type="monotone" dataKey="cumPL" stroke="none" fill="url(#gGreen)" fillOpacity={1} dot={false} activeDot={false} />
+                <Line type="monotone" dataKey="cumPL" stroke={C.green} strokeWidth={2.5}
                   dot={false} activeDot={{r:4,fill:C.green,stroke:'#000',strokeWidth:2}} />
               </ComposedChart>
             </ResponsiveContainer>
@@ -458,10 +455,10 @@ export default function Analytics() {
                   <td className="mono">{p.n}</td>
                   <td className={`mono ${p.wr>=50?'col-profit':'col-loss'}`}>{p.wr.toFixed(1)}%</td>
                   <td className="mono">{p.avgR!=null?fmtR(p.avgR):'—'}</td>
-                  <td className={`mono ${p.pf>=1.5?'col-profit':p.pf>=1?'col-warn':'col-loss'}`}>{p.pf.toFixed(2)}</td>
+                  <td className={`mono ${p.pf>=1.5?'col-profit':p.pf>=1?'col-warn':'col-loss'}`}>{p.pf>=999?'∞':p.pf.toFixed(2)}</td>
                   <td className="mono col-profit">+${p.avgWin.toFixed(2)}</td>
                   <td className="mono col-loss">-${p.avgLoss.toFixed(2)}</td>
-                  <td className="mono">{p.avgLoss>0?(p.avgWin/p.avgLoss).toFixed(2):'∞'}</td>
+                  <td className={`mono ${p.avgWin>=p.avgLoss?'col-profit':'col-warn'}`}>{p.avgLoss>0?(p.avgWin/p.avgLoss).toFixed(2):'∞'}</td>
                   <td className={`mono ${p.pl>=0?'col-profit':'col-loss'}`}>{fmtMoney(p.pl)}</td>
                 </tr>
               ))}
@@ -470,41 +467,107 @@ export default function Analytics() {
         </div>
       </div>
 
-      {/* ══ 9. LONG vs SHORT ══ */}
+      {/* ══ 9. LONG VS SHORT ══ */}
       <div className="a-section">
-        <ASection title="Long vs Short" sub="Are you better buying dips or fading rallies?" />
+        <ASection title="Long vs Short" sub="Are you directionally biased?" />
         <div className="a-grid-2">
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-            {ls.map((d,di)=>[
-              <AStat key={`${d.dir}-wr`}  label={`${d.dir} Win Rate`} value={fmtPct(d.wr)}   col={d.wr>=50?'col-profit':'col-loss'} sub={`${d.n} trades`} pct={d.wr} pctCol={d.wr>=50?C.profit:C.loss} />,
-              <AStat key={`${d.dir}-pl`}  label={`${d.dir} P/L`}      value={fmtMoney(d.pl)}  col={d.pl>=0?'col-profit':'col-loss'} sub={`Avg: ${fmtMoney(d.avg)}`} />,
-            ])}
-          </div>
+          {ls.map(d=>(
+            <div key={d.dir} style={{
+              background:'rgba(255,255,255,0.025)', border:'1px solid rgba(255,255,255,0.06)',
+              borderRadius:16, padding:'20px 24px',
+            }}>
+              <div style={{fontSize:13,fontWeight:800,textTransform:'uppercase',letterSpacing:1,color:d.dir==='Long'?C.profit:C.loss,marginBottom:14}}>{d.dir}</div>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10}}>
+                {[
+                  {l:'Trades',v:d.n,col:'col-base'},
+                  {l:'Win Rate',v:fmtPct(d.wr),col:d.wr>=50?'col-profit':'col-loss'},
+                  {l:'P.Factor',v:d.pf>=999?'∞':d.pf.toFixed(2),col:d.pf>=1.5?'col-profit':d.pf>=1?'col-warn':'col-loss'},
+                  {l:'Net P/L',v:fmtMoney(d.pl),col:d.pl>=0?'col-profit':'col-loss'},
+                  {l:'Avg P/L',v:fmtMoney(d.avg),col:d.avg>=0?'col-profit':'col-loss'},
+                  {l:'Avg Win',v:`+$${d.avgWin.toFixed(2)}`,col:'col-profit'},
+                  {l:'Avg Loss',v:`-$${d.avgLoss.toFixed(2)}`,col:'col-loss'},
+                  {l:'Payoff',v:d.avgLoss>0?(d.avgWin/d.avgLoss).toFixed(2):'∞',col:d.avgWin>=d.avgLoss?'col-profit':'col-warn'},
+                ].map(({l,v,col})=>(
+                  <div key={l}>
+                    <div style={{fontSize:9,color:'#555f6e',textTransform:'uppercase',letterSpacing:'0.5px',marginBottom:4}}>{l}</div>
+                    <div className={`mono ${col}`} style={{fontSize:14,fontWeight:700}}>{v}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
 
-          <AChart title="Long vs Short — Side by Side" dot={C.blue} h={200}>
+      {/* ══ 10. DAY OF WEEK ══ */}
+      <div className="a-section">
+        <ASection title="Day of Week Analysis" sub="When is your edge strongest?" />
+        <AChart title="Avg P/L by Day" dot={C.blue} h={220}>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={dow} margin={MAR} barCategoryGap="28%">
+              <CartesianGrid {...GRID_P} />
+              <XAxis dataKey="d" tick={TICK} tickLine={false} axisLine={false} />
+              <YAxis tick={TICK} tickLine={false} axisLine={false} tickFormatter={fmtK} />
+              <Tooltip content={<Tip fmt={fmtMoney} color={C.blue} />} cursor={{fill:'rgba(255,255,255,0.02)'}} />
+              <ReferenceLine y={0} stroke="#2a2a3a" />
+              <Bar dataKey="avg" radius={[6,6,0,0]} maxBarSize={48}>
+                {dow.map((e,i)=><Cell key={i} fill={e.avg>=0?C.profit:C.loss} fillOpacity={0.88} />)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </AChart>
+      </div>
+
+      {/* ══ 11. ROLLING METRICS ══ */}
+      <div className="a-section">
+        <ASection title="Rolling Performance (10-Trade Window)" sub="Are you improving or slipping? This tracks your edge in real-time." />
+        <div className="a-grid-2">
+          <AChart title="Rolling Win Rate" dot={C.blue} h={220}>
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={[
-                  {m:'Win Rate %', Long:+ls[0].wr.toFixed(1),     Short:+ls[1].wr.toFixed(1)},
-                  {m:'PF Score',   Long:+Math.min(ls[0].pf/3*100,100).toFixed(1), Short:+Math.min(ls[1].pf/3*100,100).toFixed(1)},
-                  {m:'Payoff×20',  Long:+Math.min(ls[0].avgLoss>0?(ls[0].avgWin/ls[0].avgLoss)*20:100,100).toFixed(1),
-                                   Short:+Math.min(ls[1].avgLoss>0?(ls[1].avgWin/ls[1].avgLoss)*20:100,100).toFixed(1)},
-                ]}
-                margin={{...MAR,left:8}} barCategoryGap="22%">
+              <ComposedChart data={rollingWR} margin={MAR}>
+                <SvgDefs />
                 <CartesianGrid {...GRID_P} />
-                <XAxis dataKey="m" tick={TICK} tickLine={false} axisLine={false} />
-                <YAxis tick={TICK} tickLine={false} axisLine={false} domain={[0,100]} tickFormatter={v=>`${v}`} />
-                <Tooltip contentStyle={{background:'#060610',border:'1px solid #2a2a3a',borderRadius:10,fontSize:12}} itemStyle={{color:'#e8edf3'}} cursor={{fill:'rgba(255,255,255,0.02)'}} />
-                <ReferenceLine y={50} stroke="#2a2a3a" strokeDasharray="4 4" />
-                <Bar dataKey="Long"  fill={C.profit} fillOpacity={0.85} radius={[4,4,0,0]} maxBarSize={32} />
-                <Bar dataKey="Short" fill={C.blue}   fillOpacity={0.85} radius={[4,4,0,0]} maxBarSize={32} />
-              </BarChart>
+                <XAxis dataKey="i" tick={TICK} tickLine={false} axisLine={false}
+                  label={{value:'Trade #',fill:'#4a5568',fontSize:9,position:'insideBottom',offset:-2}} />
+                <YAxis tick={TICK} tickLine={false} axisLine={false} domain={[0,100]} tickFormatter={v=>`${v}%`} />
+                <Tooltip content={<Tip fmt={fmtPct} color={C.blue} />} cursor={{stroke:'#2a2a3a',strokeWidth:1}} />
+                <ReferenceLine y={50} stroke={C.warn} strokeDasharray="4 4" strokeWidth={1}
+                  label={{value:'50%',fill:C.warn,fontSize:9,position:'right'}} />
+                <Area type="monotone" dataKey="wr" stroke="none" fill="url(#gBlue)" fillOpacity={1} dot={false} activeDot={false} />
+                <Line type="monotone" dataKey="wr" stroke={C.blue} strokeWidth={2.5}
+                  dot={false} activeDot={{r:4,fill:C.blue,stroke:'#000',strokeWidth:2}} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </AChart>
+
+          <AChart title="Rolling Expectancy" dot={C.green} h={220}>
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={rollingEx} margin={MAR}>
+                <SvgDefs />
+                <CartesianGrid {...GRID_P} />
+                <XAxis dataKey="i" tick={TICK} tickLine={false} axisLine={false}
+                  label={{value:'Trade #',fill:'#4a5568',fontSize:9,position:'insideBottom',offset:-2}} />
+                <YAxis tick={TICK} tickLine={false} axisLine={false} tickFormatter={v=>`$${v>=0?'':'-'}${Math.abs(v).toFixed(0)}`} />
+                <Tooltip content={<Tip fmt={fmtMoney} />} cursor={{stroke:'#2a2a3a',strokeWidth:1}} />
+                <ReferenceLine y={0} stroke="#2a2a3a" strokeDasharray="4 4" />
+                <Bar dataKey="ex" maxBarSize={14} radius={[3,3,0,0]}>
+                  {rollingEx.map((e,i)=><Cell key={i} fill={e.ex>=0?C.profit:C.loss} fillOpacity={0.75} />)}
+                </Bar>
+                <Line type="monotone" dataKey="ex" stroke={C.green} strokeWidth={2}
+                  dot={false} activeDot={{r:4,fill:C.green,stroke:'#000',strokeWidth:2}} />
+              </ComposedChart>
             </ResponsiveContainer>
           </AChart>
         </div>
       </div>
 
-      {/* ══ 10. MODEL PERFORMANCE ══ */}
+      {/* ══ 12. ACTIVITY HEATMAP ══ */}
+      <div className="a-section">
+        <ASection title="Activity Heatmap" sub="Last 90 days — colour intensity = P&L magnitude" />
+        <ActivityHeatmap data={heatmap} />
+      </div>
+
+      {/* ══ 13. MODEL / PLAYBOOK ANALYSIS ══ */}
       {mperf.length > 0 && (
         <div className="a-section">
           <ASection title="Model / Playbook Analysis" sub="Which setups carry your edge — and which need killing" />
@@ -551,7 +614,7 @@ export default function Analytics() {
         </div>
       )}
 
-      {/* ══ 11. TRADE GRADES ══ */}
+      {/* ══ 14. TRADE GRADES ══ */}
       <div className="a-section">
         <ASection title="Trade Quality Grades" sub="Execution discipline — your grade distribution tells the real story" />
         <div className="a-grid-2">
@@ -586,55 +649,12 @@ export default function Analytics() {
         </div>
       </div>
 
-      {/* ══ 12. TIME ANALYSIS ══ */}
-      <div className="a-section">
-        <ASection title="Time-Based Performance" />
-        <div className="a-grid-2" style={{marginBottom:16}}>
-          <AChart title="Monthly P/L + Cumulative (dashed)" dot={C.profit} h={240}>
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={monthly} margin={MAR} barCategoryGap="30%">
-                <SvgDefs />
-                <CartesianGrid {...GRID_P} />
-                <XAxis dataKey="m" tick={TICK} tickLine={false} axisLine={false} />
-                <YAxis tick={TICK} tickLine={false} axisLine={false} tickFormatter={fmtK} />
-                <Tooltip content={<Tip fmt={fmtMoney} />} cursor={{fill:'rgba(255,255,255,0.02)'}} />
-                <ReferenceLine y={0} stroke="#2a2a3a" />
-                <Bar dataKey="pl" radius={[6,6,0,0]} maxBarSize={48}>
-                  {monthly.map((e,i)=><Cell key={i} fill={e.pl>=0?C.profit:C.loss} fillOpacity={0.9} />)}
-                </Bar>
-                <Line type="monotone" dataKey="cumPL" stroke={C.blue} strokeWidth={1.5} strokeDasharray="5 3" dot={false} />
-              </ComposedChart>
-            </ResponsiveContainer>
-          </AChart>
-
-          <AChart title="Day of Week — Average P/L" dot={C.warn} h={240}>
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={dow} margin={MAR} barCategoryGap="26%">
-                <CartesianGrid {...GRID_P} />
-                <XAxis dataKey="d" tick={TICK} tickLine={false} axisLine={false} />
-                <YAxis tick={TICK} tickLine={false} axisLine={false} tickFormatter={v=>`${v<0?'-':''}$${Math.abs(v).toFixed(0)}`} />
-                <Tooltip content={<Tip fmt={fmtMoney} />} cursor={{fill:'rgba(255,255,255,0.02)'}} />
-                <ReferenceLine y={0} stroke="#2a2a3a" />
-                <Bar dataKey="avg" radius={[6,6,0,0]} maxBarSize={52}>
-                  {dow.map((e,i)=><Cell key={i} fill={e.avg>=0?C.profit:C.loss} fillOpacity={0.9} />)}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </AChart>
-        </div>
-
-        <AChart title="Daily P/L Heatmap — Last 90 Days" dot={C.blue} h="auto">
-          <HeatmapGrid data={heatmap} />
-        </AChart>
-      </div>
-
-      {/* ══ 13. RULE VIOLATION TRACKER ══ */}
+      {/* ══ 15. RULE VIOLATION TRACKER ══ */}
       <div className="a-section">
         <ASection
           title="Rule Violation Tracker"
           sub="Trades where you broke your own rules — the real cost of indiscipline"
         />
-
         <div className="a-stat-grid a-stat-grid-4" style={{ marginBottom: 20 }}>
           <AStat
             label="Violation Rate"
@@ -689,36 +709,14 @@ export default function Analytics() {
                   <Tooltip content={<Tip fmt={fmtMoney} />} cursor={{fill:'rgba(255,255,255,0.02)'}} />
                   <ReferenceLine y={0} stroke="#2a2a3a" />
                   <Bar dataKey="val" radius={[8,8,0,0]} maxBarSize={80}>
-                    <Cell fill={violations.avgClean >= 0 ? C.profit : C.loss} fillOpacity={0.9} />
-                    <Cell fill={C.loss} fillOpacity={0.9} />
+                    <Cell fill={violations.avgClean >= 0 ? C.profit : C.loss} fillOpacity={0.88} />
+                    <Cell fill={violations.avgViol  >= 0 ? C.profit : C.loss} fillOpacity={0.88} />
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
             </AChart>
 
-            <AChart title="Clean vs. Violated — Win Rate %" dot={C.warn} h={240}>
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={[
-                    { label: 'Clean', val: violations.cleanWR || 0 },
-                    { label: 'Violated', val: violations.violWR || 0 },
-                  ]}
-                  margin={MAR}
-                  barCategoryGap="35%"
-                >
-                  <CartesianGrid {...GRID_P} />
-                  <XAxis dataKey="label" tick={TICK} tickLine={false} axisLine={false} />
-                  <YAxis tick={TICK} tickLine={false} axisLine={false} domain={[0,100]} tickFormatter={v=>`${v}%`} />
-                  <Tooltip content={<Tip fmt={v=>`${v.toFixed(1)}%`} color={C.warn} />} cursor={{fill:'rgba(255,255,255,0.02)'}} />
-                  <Bar dataKey="val" radius={[8,8,0,0]} maxBarSize={80}>
-                    <Cell fill={C.profit} fillOpacity={0.9} />
-                    <Cell fill={C.warn} fillOpacity={0.85} />
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </AChart>
-
-            <AChart title="Violation Frequency — Rolling 10 Trades" dot={C.loss} h={220}>
+            <AChart title="Rolling Violation Rate" dot={C.loss} h={240}>
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={violations.rollingViol} margin={MAR}>
                   <SvgDefs />
@@ -766,7 +764,6 @@ export default function Analytics() {
                     <tr key={i} style={{ borderBottom:'1px solid rgba(255,255,255,0.04)', background: i%2===0?'transparent':'rgba(255,255,255,0.01)' }}>
                       <td style={{ padding:'7px 12px', color:'#8891a4' }}>{fmtD(t.date)}</td>
                       <td style={{ padding:'7px 12px', color:'#c0cad8', fontWeight:600 }}>{t.pair || '—'}</td>
-                      {/* ── FIX: capital L/S match (was 'long'/'short') ── */}
                       <td style={{ padding:'7px 12px', color: t.direction==='Long'?C.profit:C.loss, fontWeight:700, textTransform:'uppercase', fontSize:10 }}>{t.direction || '—'}</td>
                       <td style={{ padding:'7px 12px', color: t.net_pl>=0?C.profit:C.loss, fontWeight:700 }}>{fmtMoney(t.net_pl)}</td>
                       <td style={{ padding:'7px 12px', color: t.r_multiple>=0?C.profit:C.loss }}>{t.r_multiple!=null?fmtR(t.r_multiple):'—'}</td>
@@ -786,10 +783,305 @@ export default function Analytics() {
         )}
       </div>
 
-      {/* ══ 14. DAY × HOUR HEATMAP ══ */}
+      {/* ══ 16. ENTRY TIMING ANALYSIS ══ */}
       <div className="a-section">
         <ASection title="Entry Timing Analysis" sub="When do you trade best? P&L by day of week and hour" />
         <DayHourHeatmap data={dayHourData} />
+      </div>
+
+      {/* ══ 17. MONTE CARLO SIMULATION ══ */}
+      <div className="a-section">
+        <ASection
+          title="Monte Carlo Simulation"
+          sub="1,000 randomised equity paths based on your historical trade distribution"
+        />
+
+        {/* Config bar */}
+        <div style={{
+          display:'flex', gap:16, alignItems:'flex-end', flexWrap:'wrap',
+          background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.06)',
+          borderRadius:12, padding:'14px 18px', marginBottom:20,
+        }}>
+          <div style={{display:'flex',flexDirection:'column',gap:5}}>
+            <label style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.7px',color:'#555f6e'}}>
+              Simulations
+            </label>
+            <select
+              value={mcConfig.numSims}
+              onChange={e => setMcConfig(c => ({ ...c, numSims: +e.target.value }))}
+              style={{background:'var(--bg-tertiary)',border:'1px solid var(--border-color)',borderRadius:8,color:'var(--text-primary)',padding:'7px 12px',fontSize:13,minWidth:140}}
+            >
+              <option value={500}>500 simulations</option>
+              <option value={1000}>1,000 simulations</option>
+              <option value={5000}>5,000 simulations</option>
+            </select>
+          </div>
+
+          <div style={{display:'flex',flexDirection:'column',gap:5}}>
+            <label style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.7px',color:'#555f6e'}}>
+              Trades per Simulation
+            </label>
+            <select
+              value={mcConfig.numTrades}
+              onChange={e => setMcConfig(c => ({ ...c, numTrades: +e.target.value }))}
+              style={{background:'var(--bg-tertiary)',border:'1px solid var(--border-color)',borderRadius:8,color:'var(--text-primary)',padding:'7px 12px',fontSize:13,minWidth:180}}
+            >
+              <option value={50}>50 trades</option>
+              <option value={100}>100 trades</option>
+              <option value={200}>200 trades</option>
+              <option value={500}>500 trades</option>
+            </select>
+          </div>
+
+          {mcRunning && (
+            <div style={{color:'#555f6e',fontSize:12,fontFamily:'JetBrains Mono,monospace',alignSelf:'center',paddingBottom:2}}>
+              ⟳ Running {mcConfig.numSims.toLocaleString()} simulations…
+            </div>
+          )}
+        </div>
+
+        {trades.length < 5 ? (
+          <div className="a-empty">
+            <h3>Not enough data</h3>
+            <p>You need at least 5 trades to run a Monte Carlo simulation.</p>
+          </div>
+        ) : !mcResult ? (
+          <div className="a-empty">
+            <p style={{color:'#555f6e',fontFamily:'JetBrains Mono,monospace',fontSize:12}}>⟳ Computing…</p>
+          </div>
+        ) : (
+          <>
+            {/* Summary stats */}
+            <div className="a-stat-grid a-stat-grid-4" style={{marginBottom:20}}>
+              <div className="a-stat">
+                <div className="a-stat-label">Probability of Profit</div>
+                <div className={`a-stat-value ${mcResult.probProfit >= 60 ? 'col-profit' : mcResult.probProfit >= 40 ? 'col-warn' : 'col-loss'}`}>
+                  {mcResult.probProfit.toFixed(1)}%
+                </div>
+                <div className="a-stat-desc">% of sims ending above starting balance</div>
+                <div className="a-progress">
+                  <div className="a-progress-fill" style={{
+                    width:`${mcResult.probProfit}%`,
+                    background: mcResult.probProfit >= 60 ? C.profit : mcResult.probProfit >= 40 ? C.warn : C.loss,
+                    boxShadow:`0 0 6px ${mcResult.probProfit >= 60 ? C.profit : C.warn}66`,
+                  }}/>
+                </div>
+              </div>
+
+              <div className="a-stat">
+                <div className="a-stat-label">Probability of Ruin</div>
+                <div className={`a-stat-value ${mcResult.probRuin <= 5 ? 'col-profit' : mcResult.probRuin <= 20 ? 'col-warn' : 'col-loss'}`}>
+                  {mcResult.probRuin.toFixed(1)}%
+                </div>
+                <div className="a-stat-desc">% of sims losing &gt;50% of account</div>
+              </div>
+
+              <div className="a-stat">
+                <div className="a-stat-label">Median Outcome</div>
+                <div className={`a-stat-value ${mcResult.medFinal >= mcResult.start ? 'col-profit' : 'col-loss'}`}>
+                  {`${mcResult.medFinal >= mcResult.start ? '+' : '-'}$${Math.abs(mcResult.medFinal - mcResult.start).toLocaleString('en-US',{maximumFractionDigits:0})}`}
+                </div>
+                <div className="a-stat-desc">P&L at median (50th percentile)</div>
+              </div>
+
+              <div className="a-stat">
+                <div className="a-stat-label">Median Max Drawdown</div>
+                <div className="a-stat-value col-loss">{mcResult.medDD.toFixed(1)}%</div>
+                <div className="a-stat-desc">95th pct worst case: {mcResult.worstDD.toFixed(1)}%</div>
+              </div>
+            </div>
+
+            {/* Equity fan + DD histogram */}
+            <div className="a-grid-2" style={{marginBottom:20}}>
+              <AChart title="Equity Curve Fan — Percentile Bands" dot={C.profit} h={300}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={mcResult.bandData} margin={{top:8,right:16,left:4,bottom:4}}>
+                    <SvgDefs />
+                    <CartesianGrid {...GRID_P} />
+                    <XAxis
+                      dataKey="t"
+                      tick={TICK}
+                      tickLine={false}
+                      axisLine={false}
+                      label={{value:'Trade #', fill:'#4a5568', fontSize:9, position:'insideBottom', offset:-2}}
+                    />
+                    <YAxis
+                      tick={TICK}
+                      tickLine={false}
+                      axisLine={false}
+                      tickFormatter={v => v >= 0 ? `+$${Math.abs(v) >= 1000 ? `${(v/1000).toFixed(0)}k` : v.toFixed(0)}` : `-$${Math.abs(v) >= 1000 ? `${(Math.abs(v)/1000).toFixed(0)}k` : Math.abs(v).toFixed(0)}`}
+                    />
+                    <Tooltip
+                      content={({ active, payload, label }) => {
+                        if (!active || !payload?.length) return null;
+                        const d = mcResult.bandData.find(x => x.t === label);
+                        if (!d) return null;
+                        const fmt = v => `${v >= 0 ? '+' : '-'}$${Math.abs(v).toLocaleString('en-US', {maximumFractionDigits:0})}`;
+                        return (
+                          <div style={{background:'#060610',border:`1px solid ${C.profit}40`,borderRadius:10,padding:'10px 14px',fontSize:11,fontFamily:'JetBrains Mono,monospace'}}>
+                            <div style={{color:'#555f6e',marginBottom:6}}>After trade #{label}</div>
+                            <div style={{color:C.profit}}>P95 {fmt(d.p95)}</div>
+                            <div style={{color:'#6a9f8a'}}>P75 {fmt(d.p75)}</div>
+                            <div style={{color:C.warn,fontWeight:800}}>P50 {fmt(d.p50)} ← median</div>
+                            <div style={{color:'#7a6a8a'}}>P25 {fmt(d.p25)}</div>
+                            <div style={{color:C.loss}}>P5 {fmt(d.p5)}</div>
+                          </div>
+                        );
+                      }}
+                      cursor={{stroke:'#2a2a3a',strokeWidth:1}}
+                    />
+                    <Area type="monotone" dataKey="p95" stroke="none" fill={C.profit} fillOpacity={0.06} dot={false} activeDot={false} legendType="none" />
+                    <Area type="monotone" dataKey="p5"  stroke="none" fill="#060610" fillOpacity={1}    dot={false} activeDot={false} legendType="none" />
+                    <Area type="monotone" dataKey="p75" stroke="none" fill={C.profit} fillOpacity={0.12} dot={false} activeDot={false} legendType="none" />
+                    <Area type="monotone" dataKey="p25" stroke="none" fill="#060610" fillOpacity={1}    dot={false} activeDot={false} legendType="none" />
+                    <Line type="monotone" dataKey="p95" stroke={C.profit} strokeWidth={1.5} strokeOpacity={0.5}  dot={false} activeDot={false} />
+                    <Line type="monotone" dataKey="p75" stroke={C.profit} strokeWidth={1}   strokeOpacity={0.35} dot={false} activeDot={false} strokeDasharray="3 3" />
+                    <Line type="monotone" dataKey="p25" stroke={C.loss}   strokeWidth={1}   strokeOpacity={0.35} dot={false} activeDot={false} strokeDasharray="3 3" />
+                    <Line type="monotone" dataKey="p5"  stroke={C.loss}   strokeWidth={1.5} strokeOpacity={0.5}  dot={false} activeDot={false} />
+                    <Line type="monotone" dataKey="p50" stroke={C.warn}   strokeWidth={2.5} dot={false} activeDot={{r:4,fill:C.warn,stroke:'#000',strokeWidth:2}} />
+                    <ReferenceLine y={0} stroke="#2a2a3a" strokeDasharray="4 4" />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </AChart>
+
+              <AChart title="Max Drawdown Distribution Across Simulations" dot={C.loss} h={300}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={mcResult.ddHist} margin={{top:8,right:16,left:4,bottom:4}} barCategoryGap="16%">
+                    <CartesianGrid {...GRID_P} />
+                    <XAxis dataKey="range" tick={{...TICK,fontSize:9}} tickLine={false} axisLine={false} />
+                    <YAxis tick={TICK} tickLine={false} axisLine={false} allowDecimals={false} />
+                    <Tooltip
+                      content={({ active, payload }) => {
+                        if (!active || !payload?.length) return null;
+                        const d = payload[0]?.payload;
+                        return (
+                          <div style={{background:'#060610',border:`1px solid ${C.loss}40`,borderRadius:10,padding:'10px 14px',fontSize:12,fontFamily:'JetBrains Mono,monospace'}}>
+                            <div style={{color:'#555f6e',marginBottom:4}}>Drawdown {d.range}</div>
+                            <div style={{color:C.loss,fontWeight:800}}>{d.count} simulations</div>
+                            <div style={{color:'#555f6e',fontSize:10}}>{((d.count/mcResult.numSims)*100).toFixed(1)}% of total</div>
+                          </div>
+                        );
+                      }}
+                      cursor={{fill:'rgba(255,255,255,0.02)'}}
+                    />
+                    <Bar dataKey="count" radius={[6,6,0,0]} maxBarSize={52}>
+                      {mcResult.ddHist.map((e,i) => (
+                        <Cell key={i}
+                          fill={e.lo < 10 ? C.profit : e.lo < 20 ? C.warn : C.loss}
+                          fillOpacity={0.85}
+                        />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </AChart>
+            </div>
+
+            {/* Final balance distribution + scenario breakdown */}
+            <div className="a-grid-2">
+              <AChart title="Final Balance Distribution" dot={C.blue} h={260}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={mcResult.fbHist} margin={{top:8,right:16,left:4,bottom:4}} barCategoryGap="16%">
+                    <CartesianGrid {...GRID_P} />
+                    <XAxis dataKey="range" tick={{...TICK,fontSize:9}} tickLine={false} axisLine={false} />
+                    <YAxis tick={TICK} tickLine={false} axisLine={false} allowDecimals={false} />
+                    <Tooltip
+                      content={({ active, payload }) => {
+                        if (!active || !payload?.length) return null;
+                        const d = payload[0]?.payload;
+                        return (
+                          <div style={{background:'#060610',border:`1px solid ${C.blue}40`,borderRadius:10,padding:'10px 14px',fontSize:12,fontFamily:'JetBrains Mono,monospace'}}>
+                            <div style={{color:'#555f6e',marginBottom:4}}>Final balance ~{d.range}</div>
+                            <div style={{color:d.profit?C.profit:C.loss,fontWeight:800}}>{d.count} simulations</div>
+                            <div style={{color:'#555f6e',fontSize:10}}>{((d.count/mcResult.numSims)*100).toFixed(1)}% of total</div>
+                          </div>
+                        );
+                      }}
+                      cursor={{fill:'rgba(255,255,255,0.02)'}}
+                    />
+                    <Bar dataKey="count" radius={[6,6,0,0]} maxBarSize={52}>
+                      {mcResult.fbHist.map((e,i) => (
+                        <Cell key={i} fill={e.profit ? C.profit : C.loss} fillOpacity={0.85} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </AChart>
+
+              <div style={{display:'flex',flexDirection:'column',gap:12}}>
+                {[
+                  {
+                    label: 'BEST CASE (P95)',
+                    value: `${mcResult.bestCase >= mcResult.start ? '+' : '-'}$${Math.abs(mcResult.bestCase - mcResult.start).toLocaleString('en-US',{maximumFractionDigits:0})}`,
+                    sub:   `Final: $${mcResult.bestCase.toLocaleString('en-US',{maximumFractionDigits:0})}`,
+                    col:   C.profit,
+                    desc:  'Top 5% of simulation outcomes',
+                  },
+                  {
+                    label: 'MEDIAN CASE (P50)',
+                    value: `${mcResult.medFinal >= mcResult.start ? '+' : '-'}$${Math.abs(mcResult.medFinal - mcResult.start).toLocaleString('en-US',{maximumFractionDigits:0})}`,
+                    sub:   `Final: $${mcResult.medFinal.toLocaleString('en-US',{maximumFractionDigits:0})}`,
+                    col:   C.warn,
+                    desc:  'The most likely outcome',
+                  },
+                  {
+                    label: 'WORST CASE (P5)',
+                    value: `${mcResult.worstCase >= mcResult.start ? '+' : '-'}$${Math.abs(mcResult.worstCase - mcResult.start).toLocaleString('en-US',{maximumFractionDigits:0})}`,
+                    sub:   `Final: $${mcResult.worstCase.toLocaleString('en-US',{maximumFractionDigits:0})}`,
+                    col:   C.loss,
+                    desc:  'Bottom 5% of simulation outcomes',
+                  },
+                  {
+                    label: 'WORST DRAWDOWN (P95)',
+                    value: `-${mcResult.worstDD.toFixed(1)}%`,
+                    sub:   `Median DD: ${mcResult.medDD.toFixed(1)}%`,
+                    col:   C.loss,
+                    desc:  '95th percentile max drawdown across all sims',
+                  },
+                ].map(({ label, value, sub, col, desc }) => (
+                  <div key={label} style={{
+                    background:'rgba(255,255,255,0.025)',
+                    border:'1px solid rgba(255,255,255,0.06)',
+                    borderRadius:12, padding:'14px 18px',
+                    display:'flex', justifyContent:'space-between', alignItems:'center',
+                  }}>
+                    <div>
+                      <div style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.6px',color:'#555f6e',marginBottom:3}}>{label}</div>
+                      <div style={{fontSize:11,color:'#3a3a4a',marginTop:2}}>{desc}</div>
+                    </div>
+                    <div style={{textAlign:'right'}}>
+                      <div style={{fontFamily:'JetBrains Mono,monospace',fontSize:20,fontWeight:800,color:col}}>{value}</div>
+                      <div style={{fontFamily:'JetBrains Mono,monospace',fontSize:11,color:'#555f6e',marginTop:2}}>{sub}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Legend */}
+            <div style={{
+              marginTop:16, padding:'10px 16px',
+              background:'rgba(255,255,255,0.015)', border:'1px solid rgba(255,255,255,0.05)',
+              borderRadius:10, display:'flex', gap:20, flexWrap:'wrap', alignItems:'center',
+            }}>
+              {[
+                { col: C.profit,  label: 'P95 — Best 5%' },
+                { col: '#6a9f8a', label: 'P75 — Upper quartile' },
+                { col: C.warn,    label: 'P50 — Median' },
+                { col: '#7a6a8a', label: 'P25 — Lower quartile' },
+                { col: C.loss,    label: 'P5 — Worst 5%' },
+              ].map(({ col, label }) => (
+                <div key={label} style={{display:'flex',alignItems:'center',gap:7}}>
+                  <div style={{width:16,height:2,background:col,borderRadius:1}} />
+                  <span style={{fontSize:10,color:'#555f6e',fontFamily:'JetBrains Mono,monospace'}}>{label}</span>
+                </div>
+              ))}
+              <div style={{marginLeft:'auto',fontSize:10,color:'#3a3a4a',fontFamily:'JetBrains Mono,monospace'}}>
+                {mcResult.numSims.toLocaleString()} sims × {mcResult.numTrades} trades · bootstrap resampling with replacement
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
     </div>
@@ -846,55 +1138,55 @@ function SeqBar({ trades }) {
         const h   = Math.max((Math.abs(t.net_pl)/maxA)*58+6,8);
         const col = t.net_pl>=0?C.profit:C.loss;
         return (
-          <div key={i} title={`#${i+1} · ${t.pair||''} · ${t.net_pl>=0?'+':''}$${t.net_pl.toFixed(2)}`}
-            style={{width:16,height:h,borderRadius:'3px 3px 2px 2px',background:col,opacity:0.82,
-              flexShrink:0,cursor:'default',boxShadow:`0 0 4px ${col}44`}} />
+          <div key={i}
+            title={`#${i+1} · ${t.pair||''} · ${t.net_pl>=0?'+':''}$${t.net_pl.toFixed(2)}`}
+            style={{
+              width:8,height:h,borderRadius:'3px 3px 0 0',
+              background:col,opacity:0.8,flexShrink:0,
+              boxShadow:`0 0 6px ${col}44`,
+            }}
+          />
         );
       })}
-      <div style={{fontSize:10,color:'#4a5568',marginLeft:'auto',alignSelf:'flex-end',paddingBottom:2,whiteSpace:'nowrap'}}>
-        ← older · newer →
-      </div>
     </div>
   );
 }
 
-function HeatmapGrid({ data }) {
-  const maxAbs=Math.max(...data.map(d=>d.pl!=null?Math.abs(d.pl):0),1);
+function ActivityHeatmap({ data }) {
+  const PROFIT = '#8670ff';
+  const LOSS   = '#ff0095';
   return (
     <div>
-      <div style={{display:'flex',gap:4,marginBottom:6}}>
-        {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=>(
-          <div key={d} style={{width:32,textAlign:'center',fontSize:9,color:'#555f6e',fontWeight:700}}>{d}</div>
-        ))}
-      </div>
-      <div style={{display:'grid',gridTemplateColumns:'repeat(7,32px)',gap:3}}>
+      <div style={{display:'flex',gap:3,flexWrap:'wrap'}}>
         {data.map((d,i)=>{
-          if (!d.date) return <div key={i} />;
-          const hasPL  = d.pl !== null && d.pl !== 0;
+          const hasPL = d.pl !== null && d.pl !== undefined;
           let bg = 'rgba(255,255,255,0.025)';
-          if (hasPL) {
-            const op = Math.min(0.18 + (Math.abs(d.pl)/maxAbs)*0.7, 0.88);
-            bg = d.pl>0 ? `rgba(134,112,255,${op})` : `rgba(255,0,149,${op})`;
+          if (hasPL && d.pl !== 0) {
+            const op = Math.min(Math.abs(d.pl)/300, 0.9)*0.85+0.15;
+            bg = d.pl > 0 ? `rgba(134,112,255,${op})` : `rgba(255,0,149,${op})`;
           }
-          const day = new Date(d.date+'T00:00:00');
+          const day = d.date ? new Date(d.date+'T00:00:00') : null;
           return (
             <div key={i}
-              title={`${d.date}: ${d.pl!==null ? `${d.pl>=0?'+':''}$${d.pl.toFixed(2)}` : 'No trades'}`}
+              title={d.date ? `${d.date}: ${d.pl!==null ? `${d.pl>=0?'+':''}$${d.pl.toFixed(2)}` : 'No trades'}` : ''}
               style={{
                 width:32,height:32,borderRadius:5,cursor:'default',
                 background:bg,
-                border:`1px solid ${hasPL?(d.pl>0?'rgba(134,112,255,0.22)':'rgba(255,0,149,0.22)'):'rgba(255,255,255,0.04)'}`,
+                border:`1px solid ${hasPL&&d.pl!==0?(d.pl>0?'rgba(134,112,255,0.22)':'rgba(255,0,149,0.22)'):'rgba(255,255,255,0.04)'}`,
                 display:'flex',alignItems:'center',justifyContent:'center',
                 fontSize:9,color:'rgba(255,255,255,0.35)',fontFamily:'JetBrains Mono,monospace',
-                transition:'opacity 0.15s',
               }}>
-              {day.getDate()}
+              {day ? day.getDate() : ''}
             </div>
           );
         })}
       </div>
       <div style={{display:'flex',gap:18,marginTop:12}}>
-        {[{bg:'rgba(134,112,255,0.55)',label:'Profit'},{bg:'rgba(255,0,149,0.55)',label:'Loss'},{bg:'rgba(255,255,255,0.04)',label:'No trades',border:'1px solid rgba(255,255,255,0.1)'}].map((x,i)=>(
+        {[
+          {bg:'rgba(134,112,255,0.55)',label:'Profit'},
+          {bg:'rgba(255,0,149,0.55)',label:'Loss'},
+          {bg:'rgba(255,255,255,0.04)',label:'No trades',border:'1px solid rgba(255,255,255,0.1)'},
+        ].map((x,i)=>(
           <div key={i} style={{display:'flex',alignItems:'center',gap:6,fontSize:10,color:'#555f6e'}}>
             <div style={{width:10,height:10,borderRadius:3,background:x.bg,border:x.border}} />{x.label}
           </div>
@@ -909,7 +1201,6 @@ function DayHourHeatmap({ data }) {
   const PROFIT = '#8670ff';
   const LOSS   = '#ff0095';
   const { grid, DAYS, HOURS, minPL, maxPL, bestCell, worstCell } = data;
-
   const [tooltip, setTooltip] = useState(null);
 
   const activeHours = HOURS.filter(h => DAYS.some(d => grid[d][h].count > 0));
@@ -927,149 +1218,104 @@ function DayHourHeatmap({ data }) {
     }
   }
 
-  const tradesWithTime = DAYS.reduce((sum, d) =>
-    sum + HOURS.reduce((s, h) => s + grid[d][h].count, 0), 0);
+  const tradesWithTime = DAYS.reduce((s,d) => s + HOURS.reduce((s2,h) => s2 + grid[d][h].count, 0), 0);
+
+  if (tradesWithTime === 0) {
+    return (
+      <div className="a-empty" style={{padding:'32px 0'}}>
+        <p style={{color:'#555f6e',fontSize:13}}>No trades with entry time recorded yet.</p>
+      </div>
+    );
+  }
 
   return (
-    <div style={{
-      background: 'var(--bg-elevated)', border: '1px solid var(--border-color)',
-      borderRadius: 14, padding: 24,
-    }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
-        <div>
-          <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Weekday × Hour Heatmap</div>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-            P&L by day of week and entry hour — only trades with Entry Time are shown
+    <div>
+      <div style={{display:'grid',gridTemplateColumns:`64px repeat(${activeHours.length},1fr)`,gap:3,marginBottom:12,overflowX:'auto'}}>
+        {/* Header row */}
+        <div />
+        {activeHours.map(h=>(
+          <div key={h} style={{textAlign:'center',fontSize:9,color:'#555f6e',fontFamily:'JetBrains Mono,monospace',paddingBottom:4}}>
+            {String(h).padStart(2,'0')}
           </div>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <div style={{ width: 10, height: 10, borderRadius: 3, background: PROFIT }} />
-            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Profit</span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <div style={{ width: 10, height: 10, borderRadius: 3, background: LOSS }} />
-            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Loss</span>
-          </div>
-        </div>
+        ))}
+        {/* Data rows */}
+        {DAYS.map(day=>(
+          <React.Fragment key={day}>
+            <div style={{fontSize:10,color:'#555f6e',fontFamily:'JetBrains Mono,monospace',display:'flex',alignItems:'center',paddingRight:6}}>{day}</div>
+            {activeHours.map(h=>{
+              const cell = grid[day][h];
+              const bg   = cellColor(cell.pl, cell.count);
+              return (
+                <div key={h}
+                  onMouseEnter={e => setTooltip({ day, h, cell, x: e.clientX, y: e.clientY })}
+                  onMouseLeave={() => setTooltip(null)}
+                  style={{
+                    height:28, borderRadius:4, background:bg, cursor:'default',
+                    border:`1px solid ${cell.count>0?(cell.pl>0?'rgba(134,112,255,0.2)':'rgba(255,0,149,0.2)'):'rgba(255,255,255,0.04)'}`,
+                    display:'flex', alignItems:'center', justifyContent:'center',
+                    fontSize:8, fontFamily:'JetBrains Mono,monospace', color:'rgba(255,255,255,0.4)',
+                  }}
+                >
+                  {cell.count > 0 ? cell.count : ''}
+                </div>
+              );
+            })}
+          </React.Fragment>
+        ))}
       </div>
 
-      {tradesWithTime === 0 ? (
-        <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-muted)', fontSize: 14 }}>
-          No trades with Entry Time logged yet. Add Entry Time when journaling to see this heatmap.
+      {tooltip && (
+        <div style={{
+          position:'fixed', left:tooltip.x+12, top:tooltip.y-8, zIndex:9999,
+          background:'#060610', border:`1px solid ${tooltip.cell.pl>=0?'rgba(134,112,255,0.4)':'rgba(255,0,149,0.4)'}`,
+          borderRadius:10, padding:'10px 14px', fontSize:11, fontFamily:'JetBrains Mono,monospace',
+          pointerEvents:'none', boxShadow:'0 16px 48px rgba(0,0,0,0.9)',
+        }}>
+          <div style={{color:'#555f6e',marginBottom:5}}>{tooltip.day} {String(tooltip.h).padStart(2,'0')}:00</div>
+          <div style={{color:tooltip.cell.pl>=0?PROFIT:LOSS,fontWeight:800,fontSize:14}}>
+            {tooltip.cell.pl>=0?'+':''}{tooltip.cell.pl.toFixed(2)} P/L
+          </div>
+          <div style={{color:'#555f6e',marginTop:3}}>{tooltip.cell.count} trade{tooltip.cell.count!==1?'s':''}</div>
         </div>
-      ) : (
-        <>
-          <div style={{ overflowX: 'auto' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: `56px repeat(${activeHours.length}, 1fr)`, gap: 3, minWidth: 500 }}>
-              <div />
-              {activeHours.map(h => (
-                <div key={h} style={{
-                  textAlign: 'center', fontSize: 11, color: 'var(--text-muted)',
-                  fontFamily: 'var(--font-mono)', paddingBottom: 6, fontWeight: 600,
-                }}>
-                  {String(h).padStart(2,'0')}
-                </div>
-              ))}
-
-              {DAYS.map(day => (
-                <React.Fragment key={day}>
-                  <div style={{
-                    display: 'flex', alignItems: 'center',
-                    fontSize: 12, fontWeight: 700, color: 'var(--text-muted)',
-                    paddingRight: 8, paddingLeft: 4,
-                  }}>
-                    {day}
-                  </div>
-
-                  {activeHours.map(h => {
-                    const cell = grid[day][h];
-                    const bg = cellColor(cell.pl, cell.count);
-                    const isBest  = bestCell?.day === day && bestCell?.hour === h;
-                    const isWorst = worstCell?.day === day && worstCell?.hour === h;
-                    return (
-                      <div
-                        key={h}
-                        onMouseEnter={e => setTooltip({ day, hour: h, cell, x: e.clientX, y: e.clientY })}
-                        onMouseLeave={() => setTooltip(null)}
-                        style={{
-                          height: 36, borderRadius: 6, background: bg,
-                          border: isBest  ? `1.5px solid ${PROFIT}` :
-                                  isWorst ? `1.5px solid ${LOSS}` :
-                                  '1px solid rgba(255,255,255,0.04)',
-                          cursor: cell.count > 0 ? 'pointer' : 'default',
-                          transition: 'opacity 0.15s',
-                          position: 'relative',
-                        }}
-                      />
-                    );
-                  })}
-                </React.Fragment>
-              ))}
-            </div>
-          </div>
-
-          {tooltip && tooltip.cell.count > 0 && (
-            <div style={{
-              position: 'fixed', left: tooltip.x + 12, top: tooltip.y - 10,
-              background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.12)',
-              borderRadius: 10, padding: '10px 14px', zIndex: 9999, pointerEvents: 'none',
-              boxShadow: '0 8px 32px rgba(0,0,0,0.6)', minWidth: 140,
-            }}>
-              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>
-                {tooltip.day} @ {String(tooltip.hour).padStart(2,'0')}:00
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 2 }}>
-                Trades: <strong style={{ color: 'var(--text-primary)' }}>{tooltip.cell.count}</strong>
-              </div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: tooltip.cell.pl >= 0 ? PROFIT : LOSS }}>
-                {tooltip.cell.pl >= 0 ? '+' : ''}${tooltip.cell.pl.toFixed(2)}
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
-                Avg: {tooltip.cell.count > 0 ? `${(tooltip.cell.pl / tooltip.cell.count >= 0 ? '+' : '')}$${(tooltip.cell.pl / tooltip.cell.count).toFixed(2)}` : '—'}
-              </div>
-            </div>
-          )}
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginTop: 20 }}>
-            {[
-              {
-                label: 'BEST TIMING',
-                value: bestCell ? `${bestCell.day} @ ${String(bestCell.hour).padStart(2,'0')}:00` : '—',
-                sub:   bestCell ? `+$${bestCell.pl.toFixed(2)}` : '',
-                color: PROFIT,
-              },
-              {
-                label: 'TOUGHEST PATCH',
-                value: worstCell ? `${worstCell.day} @ ${String(worstCell.hour).padStart(2,'0')}:00` : '—',
-                sub:   worstCell ? `-$${Math.abs(worstCell.pl).toFixed(2)}` : '',
-                color: LOSS,
-              },
-              {
-                label: 'TRADES ANALYSED',
-                value: String(tradesWithTime),
-                sub:   'with entry time',
-                color: 'var(--text-primary)',
-              },
-            ].map(({ label, value, sub, color }) => (
-              <div key={label} style={{
-                background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)',
-                borderRadius: 10, padding: '14px 18px',
-              }}>
-                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.6px', color: 'var(--text-muted)', marginBottom: 6 }}>
-                  {label}
-                </div>
-                <div style={{ fontSize: 18, fontWeight: 800, fontFamily: 'var(--font-mono)', color }}>
-                  {value}
-                </div>
-                {sub && (
-                  <div style={{ fontSize: 12, color, marginTop: 2, opacity: 0.8 }}>{sub}</div>
-                )}
-              </div>
-            ))}
-          </div>
-        </>
       )}
+
+      <div style={{display:'flex',gap:16,flexWrap:'wrap',marginTop:8}}>
+        {[
+          {
+            label: 'BEST PATCH',
+            value: bestCell ? `${bestCell.day} @ ${String(bestCell.hour).padStart(2,'0')}:00` : '—',
+            sub:   bestCell ? `+$${bestCell.pl.toFixed(2)}` : '',
+            color: PROFIT,
+          },
+          {
+            label: 'TOUGHEST PATCH',
+            value: worstCell ? `${worstCell.day} @ ${String(worstCell.hour).padStart(2,'0')}:00` : '—',
+            sub:   worstCell ? `-$${Math.abs(worstCell.pl).toFixed(2)}` : '',
+            color: LOSS,
+          },
+          {
+            label: 'TRADES ANALYSED',
+            value: String(tradesWithTime),
+            sub:   'with entry time',
+            color: 'var(--text-primary)',
+          },
+        ].map(({ label, value, sub, color }) => (
+          <div key={label} style={{
+            background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)',
+            borderRadius: 10, padding: '14px 18px',
+          }}>
+            <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.6px', color: 'var(--text-muted)', marginBottom: 6 }}>
+              {label}
+            </div>
+            <div style={{ fontSize: 18, fontWeight: 800, fontFamily: 'var(--font-mono)', color }}>
+              {value}
+            </div>
+            {sub && (
+              <div style={{ fontSize: 12, color, marginTop: 2, opacity: 0.8 }}>{sub}</div>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -1077,6 +1323,102 @@ function DayHourHeatmap({ data }) {
 /* ─────────────────────────────────────────────
    CALCULATION ENGINE
 ───────────────────────────────────────────── */
+
+function runMonteCarlo(trades, startBal, numSims, numTrades) {
+  if (!trades || trades.length < 3) return null;
+  const plPool = trades.map(t => t.net_pl);
+  const n      = numTrades;
+  const start  = startBal > 0 ? startBal : 25000;
+
+  const finalBals = [];
+  const maxDDs    = [];
+  const allPaths  = [];
+
+  for (let s = 0; s < numSims; s++) {
+    let bal   = start;
+    let peak  = start;
+    let maxDD = 0;
+    const path = [start];
+    for (let t = 0; t < n; t++) {
+      const idx = Math.floor(Math.random() * plPool.length);
+      bal      += plPool[idx];
+      if (bal > peak) peak = bal;
+      const dd = peak > 0 ? ((peak - bal) / peak) * 100 : 0;
+      if (dd > maxDD) maxDD = dd;
+      path.push(bal);
+    }
+    finalBals.push(bal);
+    maxDDs.push(maxDD);
+    allPaths.push(path);
+  }
+
+  const pct = (arr, p) => {
+    const sorted = [...arr].sort((a, b) => a - b);
+    const idx    = Math.floor((p / 100) * (sorted.length - 1));
+    return sorted[idx];
+  };
+
+  const step     = Math.max(1, Math.floor(n / 60));
+  const bandData = [];
+  for (let t = 0; t <= n; t += step) {
+    const vals = allPaths.map(p => p[t] ?? p[p.length - 1]);
+    bandData.push({
+      t,
+      p5:  +(pct(vals, 5)  - start).toFixed(2),
+      p25: +(pct(vals, 25) - start).toFixed(2),
+      p50: +(pct(vals, 50) - start).toFixed(2),
+      p75: +(pct(vals, 75) - start).toFixed(2),
+      p95: +(pct(vals, 95) - start).toFixed(2),
+    });
+  }
+  if (bandData[bandData.length - 1]?.t !== n) {
+    const vals = allPaths.map(p => p[n] ?? p[p.length - 1]);
+    bandData.push({
+      t:   n,
+      p5:  +(pct(vals, 5)  - start).toFixed(2),
+      p25: +(pct(vals, 25) - start).toFixed(2),
+      p50: +(pct(vals, 50) - start).toFixed(2),
+      p75: +(pct(vals, 75) - start).toFixed(2),
+      p95: +(pct(vals, 95) - start).toFixed(2),
+    });
+  }
+
+  const ddMin    = 0;
+  const ddMax    = Math.min(Math.ceil(pct(maxDDs, 99)), 100);
+  const ddBucket = Math.max((ddMax - ddMin) / 10, 1);
+  const ddHist   = Array.from({ length: 10 }, (_, i) => {
+    const lo  = ddMin + i * ddBucket;
+    const hi  = lo + ddBucket;
+    const cnt = maxDDs.filter(d => d >= lo && d < hi).length;
+    return { range: `${lo.toFixed(0)}–${hi.toFixed(0)}%`, count: cnt, lo, hi };
+  });
+
+  const fbMin    = pct(finalBals, 2);
+  const fbMax    = pct(finalBals, 98);
+  const fbBucket = Math.max((fbMax - fbMin) / 10, 1);
+  const fbHist   = Array.from({ length: 10 }, (_, i) => {
+    const lo  = fbMin + i * fbBucket;
+    const hi  = lo + fbBucket;
+    const cnt = finalBals.filter(b => b >= lo && (i === 9 ? b <= hi : b < hi)).length;
+    return {
+      range:  `${lo >= 1000 ? `$${(lo/1000).toFixed(0)}k` : `$${lo.toFixed(0)}`}`,
+      count:  cnt,
+      profit: lo >= start,
+    };
+  });
+
+  return {
+    bandData, ddHist, fbHist,
+    probProfit: +((finalBals.filter(b => b > start).length / numSims) * 100).toFixed(1),
+    probRuin:   +((finalBals.filter(b => b < start * 0.5).length / numSims) * 100).toFixed(1),
+    medFinal:   +pct(finalBals, 50).toFixed(2),
+    worstCase:  +pct(finalBals, 5).toFixed(2),
+    bestCase:   +pct(finalBals, 95).toFixed(2),
+    medDD:      +pct(maxDDs, 50).toFixed(1),
+    worstDD:    +pct(maxDDs, 95).toFixed(1),
+    start, numSims, numTrades,
+  };
+}
 
 function calcStats(trades) {
   const zero = {n:0,wins:0,losses:0,be:0,wr:0,pl:0,grossW:0,grossL:0,pf:0,exp:0,avgWin:0,avgLoss:0,avgR:0,rStd:0,bestR:null,worstR:null,best:0,worst:0,sharpe:0,sortino:0,calmar:0,std:0,maxDD:0};
@@ -1092,56 +1434,51 @@ function calcStats(trades) {
   const avgWin  = wins.length   ? grossW/wins.length   : 0;
   const avgLoss = losses.length ? grossL/losses.length : 0;
   const pf      = grossL>0 ? grossW/grossL : grossW>0 ? 9999 : 0;
-
-  const exp = (wr/100)*avgWin - ((100-wr)/100)*avgLoss;
+  const exp     = (wr/100)*avgWin - ((100-wr)/100)*avgLoss;
 
   const rVals = trades.filter(t=>t.r_multiple!=null).map(t=>parseFloat(t.r_multiple));
   const avgR  = rVals.length ? rVals.reduce((s,r)=>s+r,0)/rVals.length : 0;
   const bestR  = rVals.length ? Math.max(...rVals) : null;
   const worstR = rVals.length ? Math.min(...rVals) : null;
-  const rStd   = rVals.length>1 ? Math.sqrt(rVals.reduce((s,r)=>s+Math.pow(r-avgR,2),0)/rVals.length) : 0;
+  const rStd   = rVals.length>1 ? Math.sqrt(rVals.reduce((s,r)=>s+(r-avgR)**2,0)/(rVals.length-1)) : 0;
 
   const returns = trades.map(t=>t.net_pl);
-  const avgRet  = pl/trades.length;
-  const std     = trades.length>1 ? Math.sqrt(returns.reduce((s,r)=>s+Math.pow(r-avgRet,2),0)/returns.length) : 0;
+  const mean    = pl/trades.length;
+  const std     = returns.length>1 ? Math.sqrt(returns.reduce((s,r)=>s+(r-mean)**2,0)/(returns.length-1)) : 0;
+  const sharpe  = std>0 ? (mean/std)*Math.sqrt(252) : 0;
 
-  const sharpe  = std>0 ? (avgRet/std)*Math.sqrt(252) : 0;
-
-  const negRets = returns.filter(r=>r<0);
-  const downDev = negRets.length>0 ? Math.sqrt(negRets.reduce((s,r)=>s+r*r,0)/negRets.length) : std;
-  const sortino = downDev>0 ? (avgRet/downDev)*Math.sqrt(252) : 0;
+  const downside = losses.map(t=>t.net_pl);
+  const dsStd    = downside.length>1 ? Math.sqrt(downside.reduce((s,r)=>s+r**2,0)/downside.length) : 0;
+  const sortino  = dsStd>0 ? (mean/dsStd)*Math.sqrt(252) : 0;
 
   const sorted = [...trades].sort((a,b)=>new Date(a.date)-new Date(b.date));
-  let cum=0,peak=0,maxDD=0;
-  sorted.forEach(t=>{cum+=t.net_pl;if(cum>peak)peak=cum;const d=peak-cum;if(d>maxDD)maxDD=d;});
-
+  let cumPL=0,peak=0,maxDD=0;
+  sorted.forEach(t=>{
+    cumPL+=t.net_pl;
+    if(cumPL>peak)peak=cumPL;
+    const dd=peak-cumPL;
+    if(dd>maxDD)maxDD=dd;
+  });
   const calmar = maxDD>0 ? pl/maxDD : pl>0 ? 9999 : 0;
 
   return {
     n:trades.length, wins:wins.length, losses:losses.length, be:be.length,
     wr, pl, grossW, grossL, pf, exp,
     avgWin, avgLoss, avgR, rStd, bestR, worstR,
-    best:  returns.length ? returns.reduce((a, b) => a > b ? a : b) : 0,
-    worst: returns.length ? returns.reduce((a, b) => a < b ? a : b) : 0,
+    best:  returns.length ? Math.max(...returns) : 0,
+    worst: returns.length ? Math.min(...returns) : 0,
     sharpe, sortino, calmar, std, maxDD,
   };
 }
 
-// ── FIX BUG 1: buildEquity — group by date sebelum plot ──
-// Sebelumnya: 3 trade di Feb 17 → 3 titik "Feb 17" di chart → garis flat
-// Sekarang:   3 trade di Feb 17 → dijumlahkan → 1 titik "Feb 17"
 function buildEquity(trades, startingBalance = 0) {
   const sorted = [...trades].sort((a, b) => new Date(a.date) - new Date(b.date));
-
-  // Group by date, sum P&L
   const dateMap = {};
   const dateOrder = [];
   sorted.forEach(t => {
     if (!dateMap[t.date]) { dateMap[t.date] = 0; dateOrder.push(t.date); }
     dateMap[t.date] += t.net_pl;
   });
-
-  // Build cumulative equity starting from startingBalance
   let c = startingBalance;
   const result = [{ l: 'Start', eq: +c.toFixed(2) }];
   dateOrder.forEach(date => {
@@ -1151,17 +1488,14 @@ function buildEquity(trades, startingBalance = 0) {
   return result;
 }
 
-// ── FIX BUG 2: buildDrawdown — group by date + terima startingBalance ──
 function buildDrawdown(trades, startingBalance = 0) {
   const sorted = [...trades].sort((a, b) => new Date(a.date) - new Date(b.date));
-
   const dateMap = {};
   const dateOrder = [];
   sorted.forEach(t => {
     if (!dateMap[t.date]) { dateMap[t.date] = 0; dateOrder.push(t.date); }
     dateMap[t.date] += t.net_pl;
   });
-
   let c = startingBalance, peak = startingBalance;
   return dateOrder.map(date => {
     c += dateMap[date];
@@ -1203,9 +1537,7 @@ function buildRDist(trades) {
   trades.forEach(t => {
     const r = parseFloat(t.r_multiple);
     if (isNaN(r)) return;
-    for (const b of B) {
-      if (r > b.min && r <= b.max) { b.count++; break; }
-    }
+    for (const b of B) { if (r > b.min && r <= b.max) { b.count++; break; } }
   });
   return B;
 }
@@ -1265,15 +1597,7 @@ function buildStreaks(trades) {
   if(cW>0)allW.push(cW);if(cL>0)allL.push(cL);
   const avgWin=allW.length?allW.reduce((a,b)=>a+b,0)/allW.length:0;
   const avgLoss=allL.length?allL.reduce((a,b)=>a+b,0)/allL.length:0;
-  let current=0;
-  for(let i=s.length-1;i>=0;i--){
-    const t=s[i];
-    if(t.net_pl===0){break;}
-    const isW=t.net_pl>0;
-    if(i===s.length-1||s[i+1].net_pl===0){current=isW?1:-1;}
-    else{const cont=(current>0&&isW)||(current<0&&!isW);if(cont)current=current>0?current+1:current-1;else break;}
-  }
-  return{bestWin:bW,worstLoss:bL,avgWin,avgLoss,current};
+  return{bestWin:bW,worstLoss:bL,avgWin,avgLoss};
 }
 
 function buildLS(trades) {
@@ -1294,7 +1618,6 @@ function buildLS(trades) {
   });
 }
 
-// ── FIX BUG 4: buildHeatmap — UTC date bug untuk UTC+7 ──
 function buildHeatmap(trades, days=90) {
   const end=new Date(), start=new Date();
   start.setDate(end.getDate()-(days-1));
@@ -1304,9 +1627,8 @@ function buildHeatmap(trades, days=90) {
   const startDay=start.getDay();
   for(let p=0;p<startDay;p++) result.push({date:null,pl:null});
   for(let d=new Date(start);d<=end;d.setDate(d.getDate()+1)){
-    // FIX: use local date instead of toISOString() to avoid UTC offset bug
     const k = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-    result.push({date:k,pl:dMap[k]??null});
+    result.push({date:k,pl:dMap[k]!=null?+dMap[k].toFixed(2):null});
   }
   return result;
 }
@@ -1330,15 +1652,12 @@ function enrichModels(models) {
     const gW    = m.total_wins   || 0;
     const gL    = Math.abs(m.total_losses || 0);
     const pl    = m.total_pl     || 0;
-
-    const wr = (wins / total) * 100;
-    const pf = gL > 0 ? gW / gL : gW > 0 ? 9999 : 0;
-
+    const wr    = (wins / total) * 100;
+    const pf    = gL > 0 ? gW / gL : gW > 0 ? 9999 : 0;
     const lossCount = total - wins;
     const aW  = wins      > 0 ? gW / wins      : 0;
     const aL  = lossCount > 0 ? gL / lossCount : 0;
     const exp = (wr / 100) * aW - ((100 - wr) / 100) * aL;
-
     return {
       ...m,
       winRate:      wr,
@@ -1356,9 +1675,7 @@ function buildScore(S) {
   const avgPL=S.pl/S.n;
   const consistency=avgPL>0&&S.std>0
     ? Math.max(1-S.std/avgPL,0)*100
-    : avgPL>0&&S.std===0
-      ? 100
-      : 0;
+    : avgPL>0&&S.std===0 ? 100 : 0;
   return[
     {m:'Win Rate',      s:+norm(S.wr,20,85).toFixed(1)},
     {m:'Profit Factor', s:+norm(S.pf,0.5,3).toFixed(1)},
@@ -1370,87 +1687,71 @@ function buildScore(S) {
 }
 
 function buildDayHourHeatmap(trades) {
-  const DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  const DAYS  = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
   const HOURS = Array.from({ length: 24 }, (_, i) => i);
-
-  const grid = {};
+  const grid  = {};
   DAYS.forEach(d => {
     grid[d] = {};
     HOURS.forEach(h => { grid[d][h] = { pl: 0, count: 0 }; });
   });
-
-  const dayMap = { 0: 'Sun', 1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat' };
-
+  const dayMap = { 0:'Sun',1:'Mon',2:'Tue',3:'Wed',4:'Thu',5:'Fri',6:'Sat' };
   trades.forEach(t => {
     if (!t.entry_time) return;
-    const d = new Date(t.date + 'T00:00:00');
-    const day = dayMap[d.getDay()];
+    const d    = new Date(t.date + 'T00:00:00');
+    const day  = dayMap[d.getDay()];
     const hour = parseInt(t.entry_time.split(':')[0]);
     if (!isNaN(hour) && grid[day]) {
       grid[day][hour].pl    += t.net_pl;
       grid[day][hour].count += 1;
     }
   });
-
   let minPL = 0, maxPL = 0;
   DAYS.forEach(d => HOURS.forEach(h => {
     const v = grid[d][h].pl;
     if (v < minPL) minPL = v;
     if (v > maxPL) maxPL = v;
   }));
-
   let bestCell = null, worstCell = null;
   DAYS.forEach(d => HOURS.forEach(h => {
     const cell = grid[d][h];
     if (cell.count === 0) return;
-    if (!bestCell || cell.pl > bestCell.pl)  bestCell  = { day: d, hour: h, ...cell };
-    if (!worstCell || cell.pl < worstCell.pl) worstCell = { day: d, hour: h, ...cell };
+    if (!bestCell  || cell.pl > bestCell.pl)  bestCell  = { day:d, hour:h, ...cell };
+    if (!worstCell || cell.pl < worstCell.pl) worstCell = { day:d, hour:h, ...cell };
   }));
-
   return { grid, DAYS, HOURS, minPL, maxPL, bestCell, worstCell };
 }
 
 function buildViolations(trades) {
-  const sorted = [...trades].sort((a, b) => new Date(a.date) - new Date(b.date));
+  const sorted   = [...trades].sort((a, b) => new Date(a.date) - new Date(b.date));
   const violated = sorted.filter(t => t.rule_violation);
   const clean    = sorted.filter(t => !t.rule_violation);
-
-  const avg = arr => arr.length ? arr.reduce((s, t) => s + t.net_pl, 0) / arr.length : null;
-  const wr  = arr => arr.length ? (arr.filter(t => t.net_pl > 0).length / arr.length) * 100 : 0;
-
+  const avg      = arr => arr.length ? arr.reduce((s, t) => s + t.net_pl, 0) / arr.length : null;
+  const wr       = arr => arr.length ? (arr.filter(t => t.net_pl > 0).length / arr.length) * 100 : 0;
   const avgViol  = avg(violated);
   const avgClean = avg(clean);
   const hiddenCost = violated.reduce((s, t) => s + t.net_pl, 0);
-
   const rollingViol = sorted.map((_, i, arr) => {
     if (i < 9) return null;
     const window = arr.slice(i - 9, i + 1);
     const vr = (window.filter(t => t.rule_violation).length / 10) * 100;
     return { l: fmtD(arr[i].date), vr: +vr.toFixed(1) };
   }).filter(Boolean);
-
   const tagMap = {};
   violated.forEach(t => {
-    if (t.mistake_tag) {
-      tagMap[t.mistake_tag] = (tagMap[t.mistake_tag] || 0) + 1;
-    }
+    if (t.mistake_tag) tagMap[t.mistake_tag] = (tagMap[t.mistake_tag] || 0) + 1;
   });
   const mistakeTags = Object.entries(tagMap)
     .map(([tag, count]) => ({ tag, count }))
     .sort((a, b) => b.count - a.count)
     .slice(0, 8);
-
   return {
     totalCount:    sorted.length,
     vCount:        violated.length,
     violationPct:  sorted.length ? (violated.length / sorted.length) * 100 : 0,
-    avgViol,
-    avgClean,
-    hiddenCost,
+    avgViol, avgClean, hiddenCost,
     cleanWR:       wr(clean),
     violWR:        wr(violated),
-    rollingViol,
-    mistakeTags,
+    rollingViol, mistakeTags,
     violatedTrades: violated.slice().reverse(),
   };
 }

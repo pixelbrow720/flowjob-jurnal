@@ -14,7 +14,6 @@ const navItems = [
   { path: '/analytics',     label: 'Analytics',      icon: `${PUB}/a.png` },
   { path: '/calendar',      label: 'Calendar P&L',   icon: `${PUB}/calendar.png` },
   { path: '/risk',          label: 'Trading Rules',  icon: `${PUB}/balance.png` },
-  { path: '/education',     label: 'Education',      icon: `${PUB}/book.png` },
   { path: '/profile',       label: 'My Profile',     icon: `${PUB}/user.png` },
 ];
 
@@ -57,53 +56,26 @@ function Sidebar() {
             end={item.path === '/'}
             className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
           >
-            <span className="nav-icon">
-              <img src={item.icon} alt={item.label} className="nav-icon-img" />
-            </span>
+            <img src={item.icon} alt="" className="nav-icon" />
             <span className="nav-label">{item.label}</span>
-            <div className="nav-indicator" />
           </NavLink>
         ))}
-
-        {/* ── Discord ── */}
-        <div className="discord-divider" />
-        <button className="nav-item discord-nav-item" onClick={handleDiscord}>
-          <span className="nav-icon discord-icon-wrap">
-            <img
-              src={`${PUB}/discord.png`}
-              alt="Discord"
-              className="nav-icon-img discord-icon-img"
-            />
-          </span>
-          <span className="nav-label">Discord Community</span>
-          <span className="discord-badge">JOIN</span>
-        </button>
       </nav>
 
-      <div className="sidebar-footer">
-        <div className="footer-stats-grid">
-          <div className="footer-stat-item">
-            <span className="footer-stat-label">Trades</span>
-            <span className="footer-stat-val">{stats ? stats.totalTrades : '—'}</span>
-          </div>
-          <div className="footer-stat-item">
-            <span className="footer-stat-label">Win Rate</span>
-            <span className="footer-stat-val">{winRate}</span>
-          </div>
-          <div className="footer-stat-item wide">
-            <span className="footer-stat-label">Total P&L</span>
-            <span className={`footer-stat-val ${plClass}`}>{totalPL}</span>
-          </div>
-          {stats && (
-            <div className="footer-stat-item wide">
-              <span className="footer-stat-label">Profit Factor</span>
-              <span className="footer-stat-val">
-                {stats.profitFactor >= 9999 ? '∞' : stats.profitFactor.toFixed(2)}
-              </span>
-            </div>
-          )}
+      <div className="sidebar-stats">
+        <div className="sidebar-stat">
+          <span className="sidebar-stat-label">Win Rate</span>
+          <span className="sidebar-stat-value">{winRate}</span>
+        </div>
+        <div className="sidebar-stat">
+          <span className="sidebar-stat-label">Net P/L</span>
+          <span className={`sidebar-stat-value ${plClass}`}>{totalPL}</span>
         </div>
       </div>
+
+      <button className="discord-btn" onClick={handleDiscord}>
+        Join Discord
+      </button>
     </aside>
   );
 }
