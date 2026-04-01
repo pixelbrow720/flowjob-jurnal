@@ -56,26 +56,39 @@ function Sidebar() {
             end={item.path === '/'}
             className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
           >
-            <img src={item.icon} alt="" className="nav-icon" />
+            {/* FIX: wrap icon in div.nav-icon, img gets .nav-icon-img */}
+            <div className="nav-icon">
+              <img src={item.icon} alt="" className="nav-icon-img" />
+            </div>
             <span className="nav-label">{item.label}</span>
+            <span className="nav-indicator" />
           </NavLink>
         ))}
       </nav>
 
-      <div className="sidebar-stats">
-        <div className="sidebar-stat">
-          <span className="sidebar-stat-label">Win Rate</span>
-          <span className="sidebar-stat-value">{winRate}</span>
+      {/* FIX: use correct CSS classes — sidebar-footer > footer-stats-grid > footer-stat-item */}
+      <div className="sidebar-footer">
+        <div className="footer-stats-grid">
+          <div className="footer-stat-item">
+            <span className="footer-stat-label">Win Rate</span>
+            <span className="footer-stat-val">{winRate}</span>
+          </div>
+          <div className="footer-stat-item">
+            <span className="footer-stat-label">Net P/L</span>
+            <span className={`footer-stat-val ${plClass}`}>{totalPL}</span>
+          </div>
         </div>
-        <div className="sidebar-stat">
-          <span className="sidebar-stat-label">Net P/L</span>
-          <span className={`sidebar-stat-value ${plClass}`}>{totalPL}</span>
-        </div>
-      </div>
 
-      <button className="discord-btn" onClick={handleDiscord}>
-        Join Discord
-      </button>
+        {/* FIX: Discord button uses discord-nav-item class, not discord-btn */}
+        <div className="discord-divider" />
+        <button className="discord-nav-item" onClick={handleDiscord}>
+          <div className="nav-icon discord-icon-wrap">
+            <img src={`${PUB}/discord.png`} alt="" className="nav-icon-img discord-icon-img" />
+          </div>
+          <span className="nav-label">Join Discord</span>
+          <span className="discord-badge">JOIN</span>
+        </button>
+      </div>
     </aside>
   );
 }
