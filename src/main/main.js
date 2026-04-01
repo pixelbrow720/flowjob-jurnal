@@ -379,8 +379,6 @@ ipcMain.handle('export-pdf-custom', async (event, startDate, endDate) => {
 });
 
 // ─── Education ────────────────────────────────────────────────────────────────
-// BUG FIX: Handlers were previously nested inside export-pdf-custom callback,
-// so they were never registered on app start → "No handler registered" error.
 
 ipcMain.handle('get-education-weeks', async () => {
   return db.getEducationWeeks();
@@ -400,4 +398,15 @@ ipcMain.handle('delete-education-slide', async (event, id) => {
 
 ipcMain.handle('reorder-education-slides', async (event, weekNumber, orderedIds) => {
   return db.reorderEducationSlides(weekNumber, orderedIds);
+});
+
+// ─── Reset All Data ───────────────────────────────────────────────────────────
+
+ipcMain.handle('reset-all-data', async () => {
+  try {
+    db.resetAllData();
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
 });

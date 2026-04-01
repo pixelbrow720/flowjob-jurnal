@@ -12,7 +12,6 @@ class DatabaseManager {
   }
 
   initialize() {
-    // Create Accounts Table
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS accounts (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -26,7 +25,6 @@ class DatabaseManager {
       );
     `);
 
-    // Insert default accounts if they don't exist
     const forwardExists = this.db.prepare("SELECT id FROM accounts WHERE type = 'forward'").get();
     if (!forwardExists) {
       this.db.prepare(
@@ -41,7 +39,6 @@ class DatabaseManager {
       ).run('Backtest Account', 'backtest', 25000, 25000, 'Historical backtesting account');
     }
 
-    // Create Models Table
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS models (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -63,7 +60,6 @@ class DatabaseManager {
       );
     `);
 
-    // Create Trades Table — all optional fields allow NULL
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS trades (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -98,7 +94,6 @@ class DatabaseManager {
       );
     `);
 
-    // Create Settings Table
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS settings (
         key TEXT PRIMARY KEY,
@@ -106,7 +101,6 @@ class DatabaseManager {
       );
     `);
 
-    // ── Daily Journals Table ───────────────────────────────────────────────────
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS daily_journals (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -128,7 +122,6 @@ class DatabaseManager {
       );
     `);
 
-    // ── Migrate trades table ──────────────────────────────────────────────────
     const tradeColumns = this.db.prepare("PRAGMA table_info(trades)").all().map(c => c.name);
 
     const addColIfMissing = (col, definition) => {
@@ -140,14 +133,11 @@ class DatabaseManager {
     addColIfMissing('account_id',         'INTEGER');
     addColIfMissing('sl_points',          'REAL DEFAULT 0');
     addColIfMissing('tp_points',          'REAL');
-    // BUG FIX #3: Default outcome pakai NULL dulu, nanti di-backfill dari net_pl
-    // supaya trade lama yang profit tidak salah jadi 'loss'
     addColIfMissing('outcome',            "TEXT DEFAULT NULL");
     addColIfMissing('entry_time',         'TEXT');
     addColIfMissing('screenshot_before',  'TEXT');
     addColIfMissing('screenshot_after',   'TEXT');
 
-    // Backfill outcome for old trades that have NULL outcome
     this.db.prepare(`
       UPDATE trades SET outcome = CASE
         WHEN net_pl > 0 THEN 'win'
@@ -157,7 +147,6 @@ class DatabaseManager {
       WHERE outcome IS NULL
     `).run();
 
-    // ── Education Tables ──────────────────────────────────────────────────────
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS education_weeks (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -234,22 +223,17 @@ class DatabaseManager {
     return this.db.prepare('SELECT * FROM accounts WHERE id = ?').get(id);
   }
 
-  // BUG FIX #4: updateAccount sekarang juga menyimpan currency
   updateAccount(id, account) {
     return this.db.prepare(`
       UPDATE accounts SET name = ?, description = ?, currency = ? WHERE id = ?
     `).run(account.name, account.description || '', account.currency || 'USD', id);
   }
 
-  // BUG FIX #2: deleteAccount sekarang null-kan account_id di semua trade terkait
-  // supaya trade tidak jadi "yatim piatu" (dangling reference)
   deleteAccount(id) {
-    // Don't allow deleting default accounts
     const account = this.getAccount(id);
     if (account && (account.type === 'forward' || account.type === 'backtest')) {
       throw new Error('Cannot delete default accounts');
     }
-    // Putuskan relasi trade ke account ini sebelum hapus
     this.db.prepare('UPDATE trades SET account_id = NULL WHERE account_id = ?').run(id);
     return this.db.prepare('DELETE FROM accounts WHERE id = ?').run(id);
   }
@@ -269,7 +253,6 @@ class DatabaseManager {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
-    // FIX: store entryLogic as plain string, not JSON.stringify(object)
     const entryLogicStr = typeof model.entryLogic === 'object' && model.entryLogic !== null
       ? (model.entryLogic.dailyNarrative || '')
       : (model.entryLogic || '');
@@ -310,8 +293,6 @@ class DatabaseManager {
     }
     if (!Array.isArray(timeframes)) timeframes = [];
 
-    // FIX: always return entryLogic as plain string.
-    // Handles legacy data stored as {"dailyNarrative":"..."} and new plain string.
     let entryLogic = '';
     try {
       const raw = m.entry_logic || '';
@@ -374,17 +355,12 @@ class DatabaseManager {
   }
 
   deleteModel(id) {
-    // Null-kan referensi di trades dulu sebelum hapus
     this.db.prepare('UPDATE trades SET model_id = NULL WHERE model_id = ?').run(id);
     return this.db.prepare('DELETE FROM models WHERE id = ?').run(id);
   }
 
   // ─── Trade Methods ────────────────────────────────────────────────────────
 
-  // ── HELPER: normalize trade payload ──────────────────────────────────────
-  // Journal.js mengirim snake_case (entry_time, account_id, net_pl, dll.)
-  // tapi kode lama database.js membaca camelCase (entryTime, accountId, netPL, dll.)
-  // Helper ini mendukung KEDUANYA agar tidak ada field yang hilang saat save.
   _normalizeTrade(trade) {
     return {
       date:               trade.date,
@@ -413,7 +389,6 @@ class DatabaseManager {
   }
 
   createTrade(trade) {
-    // BUG FIX UTAMA: Normalize dulu supaya snake_case dari Journal.js terbaca benar
     const t = this._normalizeTrade(trade);
 
     const cols = this.db.prepare("PRAGMA table_info(trades)").all().map(c => c.name);
@@ -443,7 +418,6 @@ class DatabaseManager {
       t.tradeGrade || null,
     ];
 
-    // Always fill old NOT NULL columns with safe defaults
     const oldColDefaults = {
       'stop_loss':         t.slPoints || 0,
       'take_profit':       t.tpPoints || null,
@@ -456,7 +430,6 @@ class DatabaseManager {
       if (cols.includes(col)) { fields.push(col); values.push(val); }
     });
 
-    // New columns
     const newCols = {
       'sl_points':  t.slPoints || 0,
       'tp_points':  t.tpPoints || null,
@@ -467,7 +440,6 @@ class DatabaseManager {
       if (cols.includes(col)) { fields.push(col); values.push(val); }
     });
 
-    // BUG FIX #1: Simpan entry_time ke database
     if (cols.includes('entry_time')) {
       fields.push('entry_time');
       values.push(t.entryTime || null);
@@ -528,7 +500,6 @@ class DatabaseManager {
   }
 
   updateTrade(id, trade) {
-    // BUG FIX UTAMA: Normalize dulu supaya snake_case dari Journal.js terbaca benar
     const t = this._normalizeTrade(trade);
 
     const oldTrade = this.getTrade(id);
@@ -584,7 +555,6 @@ class DatabaseManager {
       if (cols.includes(col)) { sets.push(`${col} = ?`); values.push(val); }
     });
 
-    // BUG FIX #1: Update entry_time juga saat edit trade
     if (cols.includes('entry_time')) {
       sets.push('entry_time = ?');
       values.push(t.entryTime || null);
@@ -603,7 +573,6 @@ class DatabaseManager {
     const trade = this.getTrade(id);
     const result = this.db.prepare('DELETE FROM trades WHERE id = ?').run(id);
 
-    // Reverse balance effect
     if (trade && trade.account_id) {
       this.updateAccountBalance(trade.account_id, -trade.net_pl);
     }
@@ -675,8 +644,6 @@ class DatabaseManager {
   }
 
   getModelPerformance(filters = {}) {
-    // BUG FIX: Filter dipindah dari WHERE ke kondisi JOIN supaya LEFT JOIN
-    // tetap berfungsi benar — model tanpa trades tetap muncul dengan count = 0.
     const joinConditions = ['m.id = t.model_id'];
     const params = [];
 
@@ -847,12 +814,36 @@ class DatabaseManager {
       hoursEnabled:    true,
       hoursFrom:       '09:00',
       hoursTo:         '16:00',
-      maxTradesPerDay: 0, // 0 = unlimited
-      maxLossPerTrade: 0, // 0 = disabled
-      maxLossPerDay:   0, // 0 = disabled
+      maxTradesPerDay: 0,
+      maxLossPerTrade: 0,
+      maxLossPerDay:   0,
       manualRules:     [],
     };
   }
+
+  // ─── Reset All Data ───────────────────────────────────────────────────────
+
+  resetAllData() {
+    const deleteAll = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM trades').run();
+      this.db.prepare('DELETE FROM models').run();
+      this.db.prepare('DELETE FROM daily_journals').run();
+      this.db.prepare('DELETE FROM education_slides').run();
+      this.db.prepare('DELETE FROM settings').run();
+
+      this.db.prepare(`DELETE FROM accounts WHERE type NOT IN ('forward', 'backtest')`).run();
+      this.db.prepare(`UPDATE accounts SET current_balance = initial_balance`).run();
+
+      try {
+        this.db.prepare(`DELETE FROM sqlite_sequence WHERE name IN ('trades','models','daily_journals','accounts')`).run();
+      } catch(e) {}
+    });
+
+    deleteAll();
+    return true;
+  }
+
+  // ─── Export ───────────────────────────────────────────────────────────────
 
   exportToJSON() {
     return {
